@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+  scrape_timeout: 8s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: vllm
+    honor_labels: false
+    http_sd_configs:
+      - url: http://dashboard:3000/api/targets
+        refresh_interval: 30s

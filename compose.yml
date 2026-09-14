@@ -1,0 +1,32 @@
+services:
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+
+  dashboard:
+    build: ./dashboard
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      PROMETHEUS_URL: http://prometheus:9090
+      SERVICES_CONFIG: /config/services.json
+      REFRESH_SECONDS: "30"
+    volumes:
+      - ./services.json:/config/services.json:ro
+    ports:
+      - "127.0.0.1:3000:3000"
+
+volumes:
+  prometheus-data:
