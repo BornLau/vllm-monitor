@@ -19,6 +19,50 @@ def project(pid="one"):
 
 
 class MonitorTests(unittest.TestCase):
+    def test_simple_two_model_config(self):
+        env = {"MODEL_1_NAME": "GLM", "MODEL_1_URL": "http://glm:8080/",
+               "MODEL_1_API_KEY": "private-key", "MODEL_2_NAME": "Qwen",
+               "MODEL_2_URL": "https://proxy.example/model-b/v1/", "MODEL_2_API_KEY": ""}
+        with patch.dict(os.environ, env, clear=True):
+            projects = app.models_from_env()
+        self.assertEqual(len(projects), 2)
+        first, second = [p["nodes"][0] for p in projects]
+        self.assertEqual(first["api_base_url"], "http://glm:8080/v1")
+        self.assertEqual(first["metrics_url"], "http://glm:8080/metrics")
+        self.assertEqual(first["metrics_key_env"], "MODEL_1_API_KEY")
+        self.assertEqual(second["api_base_url"], "https://proxy.example/model-b/v1")
+        self.assertEqual(second["metrics_url"], "https://proxy.example/model-b/metrics")
+        self.assertNotIn("api_key_env", second)
+        self.assertNotIn("private-key", json.dumps(projects))
+
+    def test_simple_config_stable_ids_and_url_validation(self):
+        with patch.dict(os.environ, {"MODEL_2_URL": "http://two", "MODEL_10_URL": "http://ten",
+                                     "MODEL_1_URL": ""}, clear=True):
+            self.assertEqual([p["id"] for p in app.models_from_env()], ["model-2", "model-10"])
+        for url in ("ftp://host", "http://user:key@host", "http://host?key=secret", "http://host#key"):
+            with patch.dict(os.environ, {"MODEL_1_URL": url}, clear=True):
+                with self.assertRaises(ValueError):
+                    app.models_from_env()
+
+    def test_dotenv_quotes_and_process_precedence(self):
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"MODEL_1_NAME": "external"}, clear=True):
+            path = Path(directory) / ".env"
+            path.write_text("# comment\nMODEL_1_NAME='GLM Flash'\nMODEL_1_API_KEY='sk-#$value'\nMODEL_2_API_KEY=\n")
+            app.load_dotenv(path)
+            self.assertEqual(os.environ["MODEL_1_NAME"], "external")
+            self.assertEqual(os.environ["MODEL_1_API_KEY"], "sk-#$value")
+            self.assertEqual(os.environ["MODEL_2_API_KEY"], "")
+
+    def test_demo_is_labeled_and_never_probes(self):
+        with patch.object(app, "query", side_effect=AssertionError("unexpected query")), patch.object(app, "probe", side_effect=AssertionError("unexpected probe")):
+            demo = app.demo_snapshot()
+            report = app.report(demo).decode()
+        self.assertTrue(demo["demo"])
+        self.assertEqual(len(demo["projects"]), 2)
+        self.assertIn("【演示数据】", report)
+        self.assertEqual(demo["projects"][0]["nodes"][0]["findings"][0][0], "ok")
+        self.assertEqual(demo["projects"][1]["nodes"][0]["findings"][0][0], "critical")
+
     def test_config_and_pd_validation(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "services.json"
@@ -140,6 +184,25 @@ class HTTPTests(unittest.TestCase):
                 with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}/scrape/one/engine") as response:
                     self.assertIn(b"num_requests_running 4", response.read())
                 self.assertEqual(self.received[-1], ("/metrics", "Bearer metrics-only"))
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+
+    def test_demo_routes_are_independent_from_live_configuration(self):
+        server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with patch.object(app, "snapshot", side_effect=AssertionError("must not read live configuration")):
+                for path in ("/demo", "/api/demo", "/api/demo/report"):
+                    with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}{path}") as response:
+                        body = response.read()
+                        self.assertEqual(response.status, 200)
+                        if path == "/api/demo":
+                            self.assertTrue(json.loads(body)["demo"])
+                        if path == "/api/demo/report":
+                            self.assertTrue(body.decode().startswith("【演示数据】"))
         finally:
             server.shutdown()
             server.server_close()

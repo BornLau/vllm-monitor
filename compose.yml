@@ -21,10 +21,7 @@ services:
       - .env
     environment:
       PROMETHEUS_URL: http://prometheus:9090
-      SERVICES_CONFIG: /config/services.json
       REFRESH_SECONDS: "30"
-    volumes:
-      - ./services.json:/config/services.json:ro
     ports:
       - "127.0.0.1:3000:3000"
 
