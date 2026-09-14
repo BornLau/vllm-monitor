@@ -43,3 +43,4 @@ __pycache__/
 .venv/
 /services.json
 !.env.example
+/data/

@@ -18,12 +18,17 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     env_file:
-      - .env
+      - path: .env
+        required: false
     environment:
       PROMETHEUS_URL: http://prometheus:9090
       REFRESH_SECONDS: "30"
+      CONFIG_DB: /data/models.sqlite3
+    volumes:
+      - dashboard-data:/data
     ports:
       - "127.0.0.1:3000:3000"
 
 volumes:
   prometheus-data:
+  dashboard-data:

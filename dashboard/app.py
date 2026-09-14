@@ -4,6 +4,7 @@ import math
 import os
 import re
 import shlex
+import secrets
 import threading
 import time
 import urllib.error
@@ -12,6 +13,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from storage import ConflictError, ModelStore
 
 
 def load_dotenv(path):
@@ -39,6 +41,9 @@ CONFIG_PATH = Path(os.getenv("SERVICES_CONFIG", str(Path(__file__).resolve().par
 INDEX = Path(__file__).with_name("index.html").read_bytes()
 GROUP = "monitor_project,monitor_node"
 SELECTOR = '{job="vllm"}'
+STORE = None
+CONFIG_TOKEN = secrets.token_urlsafe(32)
+ALLOWED_HOSTS = set(os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,::1,dashboard").split(","))
 
 
 def queries():
@@ -148,12 +153,13 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # Never forward credentials to a redirect destination.
 
 
-def request(url, key_env=None, limit=8 * 1024 * 1024):
+def request(url, key_env=None, limit=8 * 1024 * 1024, secret=None):
     headers = {}
-    if key_env:
+    if secret is None and key_env:
         secret = os.getenv(key_env)
         if not secret:
             raise ValueError("未设置认证环境变量")
+    if secret:
         headers["Authorization"] = "Bearer " + secret
     opener = urllib.request.build_opener(NoRedirect())
     with opener.open(urllib.request.Request(url, headers=headers), timeout=5) as response:
@@ -189,7 +195,7 @@ def probe(node):
     started = time.monotonic()
     try:
         # api_base_url includes /v1 (or another OpenAI-compatible prefix).
-        payload = json.loads(request(node["api_base_url"].rstrip("/") + "/models", node.get("api_key_env")))
+        payload = json.loads(request(node["api_base_url"].rstrip("/") + "/models", node.get("api_key_env"), secret=node.get("_api_key")))
         if not isinstance(payload.get("data"), list):
             raise ValueError("非 models 响应")
         return {"state": "ok", "latency_ms": round((time.monotonic() - started) * 1000), "message": "API 可达 · 认证通过"}
@@ -241,7 +247,7 @@ def collect(projects):
                 if v["up"] != 1:
                     v = {name: v["up"] if name == "up" else None for name in QUERIES}
                 public = {key: node.get(key, "") for key in ("id", "name", "role", "api_base_url", "metrics_url")}
-                public.update(values=v, api=probes[identity].result(), findings=diagnose(v, bool(node.get("metrics_url"))), auth_configured=bool(node.get("api_key_env")), metrics_configured=bool(node.get("metrics_url")))
+                public.update(values=v, api=probes[identity].result(), findings=diagnose(v, bool(node.get("metrics_url"))), auth_configured=bool(node.get("api_key_env") or node.get("_api_key")), metrics_configured=bool(node.get("metrics_url")))
                 item["nodes"].append(public)
             result.append(item)
     return {"collected_at": time.strftime("%Y-%m-%d %H:%M:%S %z"), "refresh_seconds": REFRESH_SECONDS, "projects": result, "errors": errors}
@@ -249,21 +255,33 @@ def collect(projects):
 
 _cache = None
 _cache_time = 0
+_cache_revision = None
 _cache_lock = threading.Lock()
 PROJECTS = []
 
 
 def snapshot():
-    global _cache, _cache_time
+    global _cache, _cache_time, _cache_revision
     with _cache_lock:
-        if _cache is None or time.monotonic() - _cache_time >= REFRESH_SECONDS:
-            _cache = collect(PROJECTS)
-            _cache_time = time.monotonic()
-        return _cache
+        while True:
+            revision, projects = current_configuration()
+            if _cache is None or revision != _cache_revision or time.monotonic() - _cache_time >= REFRESH_SECONDS:
+                data = collect(projects)
+                if current_configuration()[0] != revision:
+                    continue  # Discard a result collected against outdated credentials/URLs.
+                _cache, _cache_time, _cache_revision = data, time.monotonic(), revision
+            return _cache
+
+
+def current_configuration():
+    if STORE is None:
+        return 0, PROJECTS
+    revision, rows = STORE.snapshot()
+    return revision, [project for project, _ in rows]
 
 
 def targets():
-    return [{"targets": ["dashboard:3000"], "labels": {"monitor_project": p["id"], "monitor_node": n["id"], "role": n["role"], "__metrics_path__": f'/scrape/{p["id"]}/{n["id"]}'}} for p in PROJECTS for n in p["nodes"] if n.get("metrics_url")]
+    return [{"targets": ["dashboard:3000"], "labels": {"monitor_project": p["id"], "monitor_node": n["id"], "role": n["role"], "__metrics_path__": f'/scrape/{p["id"]}/{n["id"]}'}} for p in current_configuration()[1] for n in p["nodes"] if n.get("metrics_url")]
 
 
 def report(data):
@@ -310,6 +328,54 @@ def demo_snapshot():
 
 
 class Handler(BaseHTTPRequestHandler):
+    def json_response(self, status, payload):
+        return self.send(status, "application/json; charset=utf-8", json.dumps(payload, ensure_ascii=False).encode())
+
+    def trusted_host(self):
+        try:
+            return urllib.parse.urlsplit("http://" + self.headers.get("Host", "")).hostname in ALLOWED_HOSTS
+        except ValueError:
+            return False
+
+    def mutate(self):
+        if not self.trusted_host() or not secrets.compare_digest(self.headers.get("X-Config-Token", ""), CONFIG_TOKEN):
+            return self.json_response(403, {"error": "请求校验失败，请刷新页面重试"})
+        origin = self.headers.get("Origin")
+        if origin and origin not in ("http://" + self.headers.get("Host", ""), "https://" + self.headers.get("Host", "")):
+            return self.json_response(403, {"error": "不允许跨站修改配置"})
+        if STORE is None:
+            return self.json_response(503, {"error": "配置数据库未初始化"})
+        path = urllib.parse.urlsplit(self.path).path
+        match = re.fullmatch(r"/api/models/([A-Za-z0-9_-]+)", path)
+        if not ((self.command == "POST" and path == "/api/models") or (self.command in ("PUT", "DELETE") and match)):
+            return self.json_response(404, {"error": "接口不存在"})
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if not 0 < length <= 16384 or self.headers.get_content_type() != "application/json":
+                return self.json_response(400, {"error": "需要不超过 16KB 的 JSON 配置"})
+            data = json.loads(self.rfile.read(length))
+            if not isinstance(data, dict):
+                raise ValueError("配置必须是 JSON 对象")
+            if self.command == "DELETE":
+                STORE.delete(match.group(1), data.get("version"))
+                return self.json_response(200, {"ok": True})
+            model = STORE.save(data, match.group(1) if match else None)
+            return self.json_response(201 if self.command == "POST" else 200, {"model": model})
+        except ConflictError as exc:
+            return self.json_response(409, {"error": str(exc)})
+        except KeyError:
+            return self.json_response(404, {"error": "模型已不存在，请刷新列表"})
+        except (json.JSONDecodeError, UnicodeError):
+            return self.json_response(400, {"error": "JSON 格式无效"})
+        except ValueError as exc:
+            return self.json_response(400, {"error": str(exc)})
+        except Exception:
+            return self.json_response(500, {"error": "配置保存失败，请检查数据库目录权限或磁盘空间"})
+
+    do_POST = mutate
+    do_PUT = mutate
+    do_DELETE = mutate
+
     def send(self, status, content_type, body):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -320,7 +386,13 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
+        if not self.trusted_host():
+            return self.json_response(403, {"error": "不允许此访问地址"})
         path = urllib.parse.urlsplit(self.path).path
+        if path == "/api/config":
+            if STORE is None:
+                return self.json_response(503, {"error": "配置数据库未初始化"})
+            return self.json_response(200, dict(STORE.list_public(), token=CONFIG_TOKEN))
         if path in ("/", "/demo"):
             return self.send(200, "text/html; charset=utf-8", INDEX)
         if path == "/api/demo":
@@ -332,10 +404,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/targets":
             return self.send(200, "application/json", json.dumps(targets()).encode())
         if path.startswith("/scrape/"):
-            node = next((n for p in PROJECTS for n in p["nodes"] if path == f'/scrape/{p["id"]}/{n["id"]}' and n.get("metrics_url")), None)
+            node = next((n for p in current_configuration()[1] for n in p["nodes"] if path == f'/scrape/{p["id"]}/{n["id"]}' and n.get("metrics_url")), None)
             if node:
                 try:
-                    body = request(node["metrics_url"], node.get("metrics_key_env"))
+                    body = request(node["metrics_url"], node.get("metrics_key_env"), secret=node.get("_metrics_key"))
                     return self.send(200, "text/plain; version=0.0.4; charset=utf-8", body)
                 except Exception as exc:
                     return self.send(502, "text/plain; charset=utf-8", safe_error(exc).encode())
@@ -355,6 +427,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    PROJECTS = models_from_env() or load_config()
-    print(f"Loaded {len(PROJECTS)} projects", flush=True)
+    STORE = ModelStore(os.getenv("CONFIG_DB", str(Path(__file__).resolve().parent.parent / "data/models.sqlite3")))
+    STORE.initialize(lambda: models_from_env() or load_config())
+    print(f"Loaded {len(current_configuration()[1])} projects; http://127.0.0.1:{os.getenv('PORT', '3000')}", flush=True)
     ThreadingHTTPServer((os.getenv("BIND_ADDRESS", "0.0.0.0"), int(os.getenv("PORT", "3000"))), Handler).serve_forever()

@@ -1,75 +1,76 @@
 # vLLM 模型监控
 
-每个模型只需要 **名称、URL、API Key**。面板并排展示 API 在线状态、探测响应时间，以及能获取到的 KV、排队、吞吐和首字延迟。不再需要配置项目、节点角色或 PD 拓扑。
+在页面添加模型，填写 **名称、URL、API Key**，保存即可接入。支持编辑、保留或替换 Key、移除模型。配置变更不需要重启容器。
 
-## 最简单的接入方式
-
-复制 `.env.example` 为 `.env`，填写：
-
-```dotenv
-MODEL_1_NAME='GLM-5.3-Flash'
-MODEL_1_URL='http://你的服务器:8080'
-MODEL_1_API_KEY='你的 Key'
-
-MODEL_2_NAME='Qwen3-32B'
-MODEL_2_URL='http://你的服务器:8000'
-MODEL_2_API_KEY='你的 Key'
-```
-
-URL 带不带 `/v1` 都可以。没有认证时，Key 留空。第三个模型继续填写 `MODEL_3_NAME`、`MODEL_3_URL`、`MODEL_3_API_KEY`，以此类推。
-
-启动（修改配置后也运行同一条）：
+## 启动
 
 ```bash
 docker compose up -d --build
 ```
 
-- **真实监控**：http://127.0.0.1:3000
-- **两个模型的面板示意**：http://127.0.0.1:3000/demo （固定示例数据，不探测真实地址）
+打开 http://127.0.0.1:3000 ，点击右上角 **管理模型 → 添加模型**。
 
-不需要填写 `services.json` 或修改 Prometheus 配置。`.env` 已被 Git 忽略，Key 只由后端使用。
+- 名称：例如 `GLM-5.3-Flash`。
+- URL：例如 `http://你的服务器:8080`，带不带 `/v1` 都可以。
+- API Key：没有认证就留空。编辑时留空保留原 Key，也可以显式清除。
+
+配置立即保存，API 探测在随后刷新时使用新配置，Prometheus 通常在约 30 秒内发现新采集目标，再按 15 秒间隔采样。首次出现速率或 P95 还需要足够的请求样本。保存失败会明确提示，不会显示成功。
+
+**已有旧版容器需要执行一次上述命令升级。升级后日常增删改模型无需重启。** Docker Compose 要求 2.24+（支持可选 `.env`）；没有 `.env` 也可以启动。
+
+[两个模型的面板示意](http://127.0.0.1:3000/demo) 使用固定示例数据，不会写入配置数据库，也不探测真实地址。从示意页进入管理界面操作的是明确标注的真实模型，保存后切换到真实监控。
+
+## 数据保存在哪里
+
+| 数据 | 保存位置 | 重启后 | 保留时间 |
+| --- | --- | --- | --- |
+| 模型名称、URL、API Key | SQLite，容器内 `/data/models.sqlite3`，挂载 `dashboard-data` 卷 | 保留 | 直到在页面移除配置 |
+| vLLM 性能指标历史 | Prometheus 时序数据库，`prometheus-data` 卷 | 保留 | 默认 30 天 |
+| API 探测结果及诊断摘要 | dashboard 内存缓存 | 重新采集 | 当前快照，尚无历史持久化 |
+| 演示数值 | 程序内固定示例 | 不涉及真实数据 | 不写入数据库 |
+
+移除模型只停止后续采集并删除配置，不删除历史指标；历史按 Prometheus 的保留策略到期。改名或更换 Key 保留指标身份；更换 URL 创建新的节点指标身份，避免把旧地址的数值显示为新地址状态。当前界面只显示最新快照，历史可到本机 Prometheus 9090 页面查询。
+
+`docker compose down` 保留两个数据卷；**`docker compose down -v` 会删除配置与历史指标**。备份模型配置时可停止 dashboard 后复制 SQLite 文件；备份 Prometheus 请使用其快照流程或停机备份整个数据卷。
+
+API Key 存储于服务端 SQLite，文件权限为 `0600`；不回显到页面、不写入状态 API、服务发现或导出摘要。当前 Key 未做应用层加密，数据库文件及备份应按凭证管理。`data/` 和 `.env` 均被 Git 忽略。
+
+## 原有配置如何迁移
+
+新数据库首次启动时自动导入 `.env` 中的 `MODEL_n_NAME / MODEL_n_URL / MODEL_n_API_KEY`，没有这些变量时兼容导入 `services.json`。后续以数据库为准，不再从环境变量覆盖页面编辑；即使把所有模型删除，重启也不会重新导入。旧 `.env` 中不再需要的模型变量可在迁移后删除。
+
+`.env.example` 仅供需要批量初始化时参考，新用户直接在页面配置即可。旧版 PD / 自定义端口或不同 metrics Key 的配置会保留采集能力；简化表单不支持编辑复杂配置，可移除后按单入口重新添加。容器若要首次导入旧 `services.json`，需挂载文件并设置 `SERVICES_CONFIG`。
 
 ## 自动监控哪些内容
 
-| 接口情况 | 面板能看到的内容 |
+| 接口情况 | 面板内容 |
 | --- | --- |
-| `/v1/models` 可访问 | API 是否在线、认证是否通过、探测响应时间 |
-| 同一端口还开放 `/metrics` | KV 占用、等待队列、运行请求、吞吐、TTFT 等 |
-| 没有 `/metrics` 或采集未就绪 | 性能指标显示 `—`；API 状态独立展示 |
+| `/v1/models` 可访问 | API 在线状态、认证结果、探测响应时间 |
+| 同一端口还开放 `/metrics` | KV、等待队列、运行请求、吞吐、首字延迟等 |
+| 没有 `/metrics` 或采集未就绪 | 性能显示 `—`，API 状态独立展示 |
 
-自动使用同一个 Key 请求 API 和 metrics；不跟随重定向。若 URL 带代理前缀，例如 `/model-a/v1`，对应指标路径为 `/model-a/metrics`。如果实际 metrics 在其他端口、需要另一把 Key，简化模式只显示入口连通性。
+同一个 Key 用于 API 和 metrics，不跟随重定向。带代理前缀如 `/model-a/v1` 时，对应指标地址为 `/model-a/metrics`。如果实际 metrics 使用其他端口或另一把 Key，简化模式只能看到入口连通性。
 
-**PD 分离先忽略内部节点。** 单一推理入口通常不能自动发现 P/D 节点；只有网关主动暴露各节点状态或带节点标签的聚合指标时，才有可能通过一个端口观察它们。当前按一个入口监控，不声称入口在线等于所有后端节点健康，也不把节点 P95 相加。参考 [vLLM PD 说明](https://docs.vllm.ai/en/latest/features/disagg_prefill/) 与 [代理示例](https://docs.vllm.ai/en/latest/examples/disaggregated/disaggregated_serving/)。
+PD 分离先按单入口监控，不自动推断背后的节点状态。只有网关主动提供各节点状态或带节点标签的聚合指标，才可能通过一个端口观察内部节点。参考 [vLLM PD 说明](https://docs.vllm.ai/en/latest/features/disagg_prefill/)。
 
-## 指标口径
+- `/models` 探测不产生推理请求，不证明特定模型能够成功生成；探测耗时不是生成延迟。
+- 每个配置对应一个服务端点；同一 URL 后面路由多个模型时，本版不拆分它们的指标。
+- 吞吐 / P95 窗口为 15 分钟，抢占为 1 小时；无样本、缺失及采集失败显示 `—`，不当作零。
+- 指标依据 [vLLM 官方文档](https://docs.vllm.ai/en/latest/usage/metrics/)，不同版本可能不完整。节点 P95 不相加。
 
-- GET `/models` 不产生推理请求，只验证入口和认证；其响应耗时不是生成延迟，也不证明特定模型能成功生成。
-- 一个配置项对应一个服务端点，metrics 统计该端点暴露的引擎指标。如果同一 URL 后面路由多个模型，本版不拆分这些模型的指标。
-- 吞吐和 P95 使用 15 分钟窗口，抢占使用 1 小时窗口；缓存使用 `prefix_cache_hits_total / prefix_cache_queries_total`。指标依据 [vLLM 官方文档](https://docs.vllm.ai/en/latest/usage/metrics/)。
-- 无样本、缺失、采集失败的性能指标显示 `—`，不当作零。各入口按独立标签查询，避免混合。
-- Prometheus 自动发现服务、每 15 秒采集，保存 30 天；面板每 30 秒刷新。首次启动需等待发现及采样。
-- 示意页及其导出文件均明确标注演示数据；真实监控不会回退成演示数据。
-
-## 本地开发
-
-无需 Docker 也能先查看示意：
+## 本地开发与访问
 
 ```bash
 BIND_ADDRESS=127.0.0.1 python3 dashboard/app.py
-```
-
-Python 启动自动读取根目录 `.env`。使用简单 `NAME='value'` 格式，含空格或 `#` 的值加引号；现有进程环境变量优先，不做 shell 表达式执行。默认 Prometheus 地址供容器使用，本地对接时设置 `PROMETHEUS_URL=http://127.0.0.1:9090`。
-
-```bash
 python3 -m unittest discover -s tests -v
 ```
 
-Python 3.9+，无额外运行依赖。旧的 `services.json` 格式保留兼容：仅在没有配置 `MODEL_n_URL` 时读取；容器如仍需使用旧文件，要自行挂载并设置 `SERVICES_CONFIG`。
+Python 3.9+，仅使用标准库。本地数据库默认是 `data/models.sqlite3`，可用 `CONFIG_DB` 改位置。本地对接 Prometheus 可设置 `PROMETHEUS_URL=http://127.0.0.1:9090`。
 
-端口只发布到宿主机回环地址，无内置登录。远程使用 SSH 转发：
+端口仅发布到宿主机回环地址；配置写入带请求校验与跨站保护，**没有内置用户登录**。远程用 SSH 转发：
 
 ```bash
 ssh -L 3000:127.0.0.1:3000 用户名@服务器
 ```
 
-`docker compose down` 保留历史数据卷，追加 `-v` 才会删除历史。
+如使用已有认证的反向代理，需将访问域名加入 `ALLOWED_HOSTS`（逗号分隔，不含端口），并保留 `dashboard` 以便容器内采集发现。默认允许 `localhost,127.0.0.1,::1,dashboard`。

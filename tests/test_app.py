@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 import tempfile
 import threading
@@ -9,6 +10,7 @@ import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "dashboard"))
 spec = importlib.util.spec_from_file_location("app", Path(__file__).resolve().parents[1] / "dashboard/app.py")
 app = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(app)
@@ -207,6 +209,83 @@ class HTTPTests(unittest.TestCase):
             server.shutdown()
             server.server_close()
             thread.join()
+
+
+class ConfigAPITests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.store = app.ModelStore(Path(self.temp.name) / 'models.sqlite3')
+        self.store.initialize(lambda: [])
+        self.patches = [patch.object(app, 'STORE', self.store), patch.object(app, '_cache', None)]
+        for item in self.patches:
+            item.start()
+        self.server = ThreadingHTTPServer(('127.0.0.1', 0), app.Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.base = f'http://127.0.0.1:{self.server.server_port}'
+        self.token = self.call('GET', '/api/config')[1]['token']
+
+    def tearDown(self):
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+        for item in reversed(self.patches):
+            item.stop()
+        self.temp.cleanup()
+
+    def call(self, method, path, data=None, headers=None):
+        request_headers = {'Content-Type': 'application/json', 'X-Config-Token': getattr(self, 'token', '')}
+        request_headers.update(headers or {})
+        request = urllib.request.Request(self.base + path, method=method, headers=request_headers,
+                                         data=json.dumps(data).encode() if data is not None else None)
+        try:
+            response = urllib.request.urlopen(request)
+        except urllib.error.HTTPError as error:
+            response = error
+        with response:
+            return response.status, json.load(response)
+
+    def test_crud_live_targets_cache_invalidation_and_secret_redaction(self):
+        with patch.object(app, 'collect', side_effect=lambda projects: {'projects': [{'id': p['id']} for p in projects]}):
+            self.assertEqual(app.snapshot()['projects'], [])
+            status, body = self.call('POST', '/api/models', {'name': 'GLM', 'url': 'http://glm:8080', 'api_key': 'private-key'})
+            self.assertEqual(status, 201)
+            model = body['model']
+            self.assertNotIn('private-key', json.dumps(body))
+            self.assertEqual(app.snapshot()['projects'], [{'id': model['id']}])
+            status, targets = self.call('GET', '/api/targets')
+            self.assertEqual(len(targets), 1)
+            self.assertNotIn('private-key', json.dumps(targets))
+            status, body = self.call('PUT', '/api/models/' + model['id'], {'name': 'Renamed', 'url': model['url'], 'version': model['version']})
+            self.assertEqual(status, 200)
+            self.assertTrue(body['model']['has_api_key'])
+            status, _ = self.call('DELETE', '/api/models/' + model['id'], {'version': body['model']['version']})
+            self.assertEqual(status, 200)
+            self.assertEqual(app.snapshot()['projects'], [])
+            self.assertEqual(self.call('GET', '/api/targets')[1], [])
+
+    def test_csrf_origin_and_rebinding_protection(self):
+        model = {'name': 'GLM', 'url': 'http://glm:8080'}
+        for headers in [{'X-Config-Token': ''}, {'Origin': 'https://evil.example'}, {'Host': 'evil.example'}]:
+            self.assertEqual(self.call('POST', '/api/models', model, headers)[0], 403)
+        self.assertEqual(self.call('GET', '/api/config', headers={'Host': 'evil.example'})[0], 403)
+        self.assertEqual(self.store.list_public()['models'], [])
+
+    def test_status_never_serializes_database_keys(self):
+        self.store.save({'name': 'GLM', 'url': 'http://glm:8080', 'api_key': 'private-key'})
+        with patch.object(app, 'query', return_value={}), patch.object(app, 'probe', return_value={'state': 'ok', 'message': 'ok'}):
+            status, body = self.call('GET', '/api/status')
+        self.assertEqual(status, 200)
+        self.assertNotIn('private-key', json.dumps(body))
+        self.assertNotIn('_api_key', json.dumps(body))
+        self.assertTrue(body['projects'][0]['nodes'][0]['auth_configured'])
+
+    def test_config_conflict_and_invalid_input(self):
+        model = self.call('POST', '/api/models', {'name': 'GLM', 'url': 'http://glm:8080'})[1]['model']
+        self.assertEqual(self.call('PUT', '/api/models/' + model['id'], {'name': 'new', 'url': model['url'], 'version': 0})[0], 409)
+        self.assertEqual(self.call('POST', '/api/models', ['not-an-object'])[0], 400)
+        self.assertEqual(self.call('POST', '/api/models', {'name': 'bad', 'url': 'file:///etc/passwd'})[0], 400)
+        self.assertEqual(self.call('DELETE', '/api/models/missing', {'version': 1})[0], 404)
 
 
 if __name__ == "__main__":
