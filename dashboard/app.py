@@ -36,7 +36,7 @@ def load_dotenv(path):
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 PROMETHEUS = os.getenv("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
-REFRESH_SECONDS = max(5, int(os.getenv("REFRESH_SECONDS", "30")))
+REFRESH_SECONDS = max(3, int(os.getenv("REFRESH_SECONDS", "3")))
 CONFIG_PATH = Path(os.getenv("SERVICES_CONFIG", str(Path(__file__).resolve().parent.parent / "services.json")))
 INDEX = Path(__file__).with_name("index.html").read_bytes()
 GROUP = "monitor_project,monitor_node"
@@ -250,7 +250,7 @@ def collect(projects):
                 public.update(values=v, api=probes[identity].result(), findings=diagnose(v, bool(node.get("metrics_url"))), auth_configured=bool(node.get("api_key_env") or node.get("_api_key")), metrics_configured=bool(node.get("metrics_url")))
                 item["nodes"].append(public)
             result.append(item)
-    return {"collected_at": time.strftime("%Y-%m-%d %H:%M:%S %z"), "refresh_seconds": REFRESH_SECONDS, "projects": result, "errors": errors}
+    return {"collected_at_ms": int(time.time() * 1000), "collected_at": time.strftime("%Y-%m-%d %H:%M:%S %z"), "refresh_seconds": REFRESH_SECONDS, "projects": result, "errors": errors}
 
 
 _cache = None
@@ -286,8 +286,6 @@ def targets():
 
 def report(data):
     lines = ["vLLM 多项目诊断摘要", "采集时间: " + data["collected_at"]]
-    if data.get("demo"):
-        lines.insert(0, "【演示数据】以下数值仅为面板示意，未连接真实推理服务。")
     if data["errors"]:
         lines.append("Prometheus 查询异常: " + json.dumps(data["errors"], ensure_ascii=False))
     for project in data["projects"]:
@@ -303,37 +301,14 @@ def report(data):
     return body
 
 
-def demo_snapshot():
-    """Deterministic illustration, never probes or reads real configuration."""
-    examples = [
-        ("glm", "GLM-5.3-Flash", "http://glm.example:8080/v1", 18,
-         dict(up=1, running=12, waiting=0, kv=46.8, imbalance=8, output_tps=243.7,
-              input_tps=3200, ttft=0.56, tpot=0.021, e2e=12.6, prefill=0.32,
-              prompt=4096, cache=72, preempt=0)),
-        ("qwen", "Qwen3-32B", "http://qwen.example:8000/v1", 26,
-         dict(up=1, running=28, waiting=7, kv=93.2, imbalance=12, output_tps=186.4,
-              input_tps=2180, ttft=1.82, tpot=0.038, e2e=28.4, prefill=0.91,
-              prompt=8192, cache=38, preempt=3)),
-    ]
-    projects = []
-    for pid, name, url, latency, values in examples:
-        projects.append({"id": pid, "name": name, "deployment": "standard", "nodes": [
-            {"id": "endpoint", "name": "服务入口", "role": "engine", "api_base_url": url,
-             "metrics_url": url[:-3] + "/metrics", "values": values,
-             "api": {"state": "ok", "message": "API 可达 · 认证通过", "latency_ms": latency},
-             "findings": diagnose(values), "auth_configured": True, "metrics_configured": True}
-        ]})
-    return {"demo": True, "collected_at": "演示快照", "refresh_seconds": REFRESH_SECONDS,
-            "projects": projects, "errors": {}}
-
-
 class Handler(BaseHTTPRequestHandler):
     def json_response(self, status, payload):
         return self.send(status, "application/json; charset=utf-8", json.dumps(payload, ensure_ascii=False).encode())
 
     def trusted_host(self):
         try:
-            return urllib.parse.urlsplit("http://" + self.headers.get("Host", "")).hostname in ALLOWED_HOSTS
+            host = urllib.parse.urlsplit("http://" + self.headers.get("Host", "")).hostname
+            return bool(host) and ("*" in ALLOWED_HOSTS or host in ALLOWED_HOSTS)
         except ValueError:
             return False
 
@@ -393,12 +368,10 @@ class Handler(BaseHTTPRequestHandler):
             if STORE is None:
                 return self.json_response(503, {"error": "配置数据库未初始化"})
             return self.json_response(200, dict(STORE.list_public(), token=CONFIG_TOKEN))
-        if path in ("/", "/demo"):
+        if path == "/":
             return self.send(200, "text/html; charset=utf-8", INDEX)
-        if path == "/api/demo":
-            return self.send(200, "application/json; charset=utf-8", json.dumps(demo_snapshot(), ensure_ascii=False).encode())
-        if path == "/api/demo/report":
-            return self.send(200, "text/plain; charset=utf-8", report(demo_snapshot()))
+        if path == "/charts.js":
+            return self.send(200, "text/javascript; charset=utf-8", Path(__file__).with_name("charts.js").read_bytes())
         if path == "/health":
             return self.send(200, "text/plain", b"ok\n")
         if path == "/api/targets":

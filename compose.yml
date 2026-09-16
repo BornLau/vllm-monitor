@@ -1,6 +1,6 @@
 services:
   prometheus:
-    image: prom/prometheus:v3.5.0
+    image: prom/prometheus:v3.13.3
     restart: unless-stopped
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -21,13 +21,15 @@ services:
       - path: .env
         required: false
     environment:
+      BIND_ADDRESS: 0.0.0.0
+      ALLOWED_HOSTS: "${ALLOWED_HOSTS:-*}"
       PROMETHEUS_URL: http://prometheus:9090
-      REFRESH_SECONDS: "30"
+      REFRESH_SECONDS: "${REFRESH_SECONDS:-3}"
       CONFIG_DB: /data/models.sqlite3
     volumes:
       - dashboard-data:/data
     ports:
-      - "127.0.0.1:3000:3000"
+      - "0.0.0.0:3000:3000"
 
 volumes:
   prometheus-data:

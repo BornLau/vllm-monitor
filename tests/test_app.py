@@ -55,16 +55,6 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(os.environ["MODEL_1_API_KEY"], "sk-#$value")
             self.assertEqual(os.environ["MODEL_2_API_KEY"], "")
 
-    def test_demo_is_labeled_and_never_probes(self):
-        with patch.object(app, "query", side_effect=AssertionError("unexpected query")), patch.object(app, "probe", side_effect=AssertionError("unexpected probe")):
-            demo = app.demo_snapshot()
-            report = app.report(demo).decode()
-        self.assertTrue(demo["demo"])
-        self.assertEqual(len(demo["projects"]), 2)
-        self.assertIn("【演示数据】", report)
-        self.assertEqual(demo["projects"][0]["nodes"][0]["findings"][0][0], "ok")
-        self.assertEqual(demo["projects"][1]["nodes"][0]["findings"][0][0], "critical")
-
     def test_config_and_pd_validation(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "services.json"
@@ -191,20 +181,19 @@ class HTTPTests(unittest.TestCase):
             server.server_close()
             thread.join()
 
-    def test_demo_routes_are_independent_from_live_configuration(self):
+    def test_live_assets_and_removed_demo_routes(self):
         server = ThreadingHTTPServer(("127.0.0.1", 0), app.Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            with patch.object(app, "snapshot", side_effect=AssertionError("must not read live configuration")):
-                for path in ("/demo", "/api/demo", "/api/demo/report"):
-                    with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}{path}") as response:
-                        body = response.read()
-                        self.assertEqual(response.status, 200)
-                        if path == "/api/demo":
-                            self.assertTrue(json.loads(body)["demo"])
-                        if path == "/api/demo/report":
-                            self.assertTrue(body.decode().startswith("【演示数据】"))
+            for path in ("/", "/charts.js"):
+                with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}{path}") as response:
+                    self.assertEqual(response.status, 200)
+                    self.assertTrue(response.read())
+            for path in ("/demo", "/api/demo", "/api/demo/report"):
+                with self.assertRaises(urllib.error.HTTPError) as caught:
+                    urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}{path}")
+                self.assertEqual(caught.exception.code, 404)
         finally:
             server.shutdown()
             server.server_close()
@@ -263,6 +252,12 @@ class ConfigAPITests(unittest.TestCase):
             self.assertEqual(status, 200)
             self.assertEqual(app.snapshot()['projects'], [])
             self.assertEqual(self.call('GET', '/api/targets')[1], [])
+
+    def test_explicit_wildcard_host_allows_remote_access_but_checks_origin(self):
+        with patch.object(app, 'ALLOWED_HOSTS', {'*'}):
+            self.assertEqual(self.call('GET', '/api/config', headers={'Host': '192.0.2.10:3000'})[0], 200)
+            headers = {'Host': '192.0.2.10:3000', 'Origin': 'http://other.example', 'X-Config-Token': self.token}
+            self.assertEqual(self.call('POST', '/api/models', {}, headers)[0], 403)
 
     def test_csrf_origin_and_rebinding_protection(self):
         model = {'name': 'GLM', 'url': 'http://glm:8080'}

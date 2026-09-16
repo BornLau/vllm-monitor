@@ -8,19 +8,39 @@
     :root{color-scheme:dark;--bg:#0b1118;--panel:#121b26;--line:#293440;--text:#ecf1f6;--muted:#94a4b6;--green:#74dfba;--amber:#f4c477;--red:#ff9299}
     *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input{font:inherit}button,a{touch-action:manipulation}button{cursor:pointer;background:#1b2734;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:9px 15px;font-size:14px}button:hover{border-color:var(--green)}button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid var(--green);outline-offset:4px}button:disabled{opacity:.5;cursor:wait}a{color:var(--green)}.primary{background:var(--green);color:#09271e;border-color:var(--green);font-weight:650}.muted{color:var(--muted)}
     .topbar{height:72px;border-bottom:1px solid var(--line);padding:0 36px;display:flex;justify-content:space-between;align-items:center}.brand{font-size:21px;font-weight:700;letter-spacing:-.5px}.brand span{color:var(--green)}.brand small{font-size:14px;font-weight:400;color:var(--muted);margin-left:16px;letter-spacing:0}.top-actions,.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.quiet{background:transparent}.pill{display:inline-flex;align-items:center;gap:7px;padding:4px 10px;border-radius:5px;font-size:13px;background:#1b2936;color:var(--muted)}.dot{display:inline-block;width:7px;height:7px;background:currentColor;border-radius:50%}.ok{color:var(--green)}.warning{color:var(--amber)}.critical{color:var(--red)}.pill.ok{background:#19372e}.pill.warning{background:#362e20}.pill.critical{background:#39242c}
-    main{max-width:1352px;margin:auto;padding:32px 36px 20px}.demo-notice{background:#162a35;border:1px solid #304c5b;border-radius:8px;padding:12px 16px;display:flex;justify-content:space-between;gap:15px;align-items:center;font-size:14px;margin-bottom:26px;color:#bcdaeb}.demo-notice a{color:#caeaff;white-space:nowrap}header{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:0 0 25px}h1{font-size:29px;letter-spacing:-.6px;margin:0 0 4px}header p{margin:0;color:var(--muted);font-size:14px}.overview{display:flex;align-items:center;gap:22px;flex-wrap:wrap;border-top:1px solid var(--line);padding:17px 0 22px;font-size:14px}.overview strong{font:600 20px ui-monospace,monospace;margin-right:5px}.overview .spacer{flex:1}.overview small{font-size:13px;color:var(--muted)}
+    main{max-width:1352px;margin:auto;padding:32px 36px 20px}header{display:flex;justify-content:space-between;align-items:center;gap:18px;margin:0 0 25px}h1{font-size:29px;letter-spacing:-.6px;margin:0 0 4px}header p{margin:0;color:var(--muted);font-size:14px}.overview{display:flex;align-items:center;gap:22px;flex-wrap:wrap;border-top:1px solid var(--line);padding:17px 0 22px;font-size:14px}.overview strong{font:600 20px ui-monospace,monospace;margin-right:5px}.overview .spacer{flex:1}.overview small{font-size:13px;color:var(--muted)}
     .models{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.model{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}.model-head{padding:23px 24px 18px;display:flex;align-items:center;gap:13px}.model-icon{height:43px;width:43px;display:grid;place-items:center;background:#253a45;color:#aee5ea;font-weight:700;border:1px solid #38525a;border-radius:10px;flex:none}.model:nth-child(2n) .model-icon{background:#322d48;color:#d3bffe;border-color:#514365}.model-name{min-width:0;flex:1}.model-name h2{font-size:21px;line-height:1.4;margin:0;overflow-wrap:anywhere}.model-name span{font-size:12px;color:var(--muted)}.endpoint{margin:0 24px;padding:10px 13px;border:1px solid var(--line);border-radius:7px;background:#0e1620;display:flex;gap:10px;align-items:center}.endpoint code{font:12px/1.7 ui-monospace,SFMono-Regular,monospace;color:#b5c3d1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.endpoint span{font-size:12px;color:var(--muted);white-space:nowrap}.probe{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;padding:13px 24px 18px;font-size:13px;border-bottom:1px solid var(--line)}.probe b{font-weight:500}.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;padding:8px 24px}.metric{padding:16px 0;min-width:0}.metric:nth-child(even){padding-left:22px;border-left:1px solid var(--line)}.metric:nth-child(n+3){border-top:1px solid var(--line)}.metric-label{font-size:14px;color:var(--muted)}.metric-value{font:600 31px/1.5 ui-monospace,SFMono-Regular,monospace;letter-spacing:-1px}.metric-value small{font:13px system-ui;letter-spacing:0;color:var(--muted);margin-left:7px}.capacity{padding:14px 24px 22px}.capacity-label{display:flex;justify-content:space-between;gap:12px;font-size:14px}.capacity-label strong{font:600 16px ui-monospace,monospace}.meter{height:7px;border-radius:5px;background:#283340;margin:10px 0 8px;overflow:hidden}.meter i{height:100%;display:block;background:var(--green);border-radius:5px}.capacity small{font-size:12px;color:var(--muted)}.finding{border-top:1px solid var(--line);padding:17px 24px;background:#12241f}.finding.warning{background:#272319}.finding.critical{background:#291c22}.finding h3{font-size:14px;margin:0 0 3px;font-weight:600}.finding p{font-size:13px;margin:0;color:#b1bdc9}.model details{border-top:1px solid var(--line)}summary{cursor:pointer;color:var(--muted);font-size:13px;padding:13px 24px}.extra{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:0 24px 18px;font-size:13px}.extra div{display:flex;flex-direction:column;color:var(--muted)}.extra strong{font-size:16px;color:var(--text);font-weight:500}.notice{background:#30291b;color:var(--amber);border:1px solid #625035;padding:12px 16px;border-radius:8px;margin-bottom:18px;font-size:14px}.empty{border:1px dashed var(--line);border-radius:12px;padding:65px 24px;text-align:center;grid-column:1/-1}.empty h2{font-size:24px;margin:0 0 10px}.empty p{color:var(--muted);font-size:14px}.empty .actions{justify-content:center;margin-top:22px}footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;color:var(--muted);font-size:12px;margin-top:24px;padding-top:18px;border-top:1px solid var(--line)}
     dialog{background:var(--panel);color:var(--text);border:1px solid #384652;border-radius:12px;max-width:700px;width:calc(100% - 32px);padding:26px}dialog::backdrop{background:#000a}.dialog-head{display:flex;justify-content:space-between;align-items:center;gap:15px}dialog h2{margin:0;font-size:22px}dialog p{font-size:14px;color:var(--muted)}pre{font:13px/1.8 ui-monospace,monospace;background:#0b121b;border:1px solid var(--line);border-radius:7px;padding:15px;overflow:auto;color:#b5dfd0}.step{font-size:14px;font-weight:600;margin-top:20px}.config-layout{display:grid;grid-template-columns:1fr 1.25fr;gap:24px;margin-top:22px}.config-list{border-right:1px solid var(--line);padding-right:20px}.config-item{padding:12px 0;border-bottom:1px solid var(--line);font-size:14px}.config-item strong{display:block;overflow-wrap:anywhere}.config-item small{display:block;font-size:12px;color:var(--muted);overflow-wrap:anywhere;margin:4px 0 8px}.config-item button{font-size:12px;padding:5px 9px}.config-form label{display:block;font-size:14px;margin:0 0 13px}.config-form input:not([type=checkbox]){display:block;width:100%;padding:10px;margin-top:6px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px}.config-form small{display:block;color:var(--muted);font-size:12px;margin-top:5px}.config-form h3{font-size:17px;margin:0 0 15px}.config-form input[type=checkbox]{margin-right:6px}.danger{color:var(--red)}#guide{max-width:840px}.saved{color:var(--green);font-size:14px;margin-top:12px;min-height:22px}@media(max-width:650px){.config-layout{grid-template-columns:1fr}.config-list{border-right:0;border-bottom:1px solid var(--line);padding:0 0 16px}}.hint{border-left:2px solid #4d6577;padding-left:13px;font-size:13px;color:var(--muted)}[hidden]{display:none!important}
-    @media(max-width:850px){.topbar{padding:0 20px}.brand small{display:none}main{padding:24px 20px}.models{grid-template-columns:1fr}.model-head{padding-top:20px}header{align-items:flex-start}.demo-notice{align-items:flex-start}.metric-value{font-size:30px}}@media(max-width:480px){.topbar{padding:0 15px}.top-actions .pill{display:none}main{padding:20px 15px}header{flex-direction:column}.demo-notice{flex-direction:column;gap:5px}.overview{gap:14px}.overview .spacer{display:none}.overview small{width:100%}.model-head{padding:18px}.endpoint{margin:0 18px}.model-name h2{font-size:19px}.metrics{padding:8px 18px}.capacity{padding-left:18px;padding-right:18px}.model-head>.pill{padding:4px 7px}.metric-value{font-size:28px}.probe{padding-left:18px;padding-right:18px}}
+    @media(max-width:850px){.topbar{padding:0 20px}.brand small{display:none}main{padding:24px 20px}.models{grid-template-columns:1fr}.model-head{padding-top:20px}header{align-items:flex-start}.metric-value{font-size:30px}}@media(max-width:480px){.topbar{padding:0 15px}.top-actions .pill{display:none}main{padding:20px 15px}header{flex-direction:column}.overview{gap:14px}.overview .spacer{display:none}.overview small{width:100%}.model-head{padding:18px}.endpoint{margin:0 18px}.model-name h2{font-size:19px}.metrics{padding:8px 18px}.capacity{padding-left:18px;padding-right:18px}.model-head>.pill{padding:4px 7px}.metric-value{font-size:28px}.probe{padding-left:18px;padding-right:18px}}
+
+    :root{--bg:#111217;--panel:#181b1f;--line:#2c3036;--green:#73bf69;--blue:#5794f2;--amber:#ffb357}
+    body{font-size:14px}main{max-width:1920px}.topbar{height:64px}.brand span{color:#ff9830}
+    header{flex-wrap:wrap}header>div:first-child{flex:1 1 420px;min-width:0}.actions{flex-wrap:wrap;gap:6px}.actions button,.actions label{white-space:nowrap;flex-shrink:0}.actions select{background:var(--panel);color:var(--text);border:1px solid var(--line);padding:9px;border-radius:6px}
+    .overview{border:0;padding:0;margin-bottom:24px;gap:12px}.overview>span:not(.spacer){background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:14px 20px;min-width:160px}.overview strong{font-size:26px}
+    .toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}.toolbar input,.toolbar select{font:14px system-ui;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:9px 12px}.toolbar input{width:280px;max-width:100%}.toolbar label{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:12px}.result-count{margin-left:auto;color:var(--muted);font-size:12px}
+    .models{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.model{border-radius:4px}.model-head{padding:12px 18px;flex-wrap:wrap;border-bottom:1px solid var(--line)}.model-icon{width:28px;height:28px;border-radius:4px;font-size:13px}.model-name h2{font-size:15px}.model-name span{display:block;font-size:11px;overflow-wrap:anywhere}.model-head .pill{font-size:11px}.model-head button{font-size:11px;padding:5px 9px}
+    .model-main{display:grid;grid-template-columns:205px minmax(0,1fr)}.facts{padding:16px 18px;border-right:1px solid var(--line)}.fact-top{font:500 26px ui-monospace,monospace}.fact-top small{font:11px system-ui;color:var(--muted)}.fact-caption{font-size:10px;color:var(--muted);margin:5px 0 12px}.fact-line{display:flex;justify-content:space-between;font-size:11px;gap:8px;margin:7px 0;color:var(--muted)}.fact-line b{font:500 11px ui-monospace,monospace;color:var(--text)}.facts .meter{height:3px}
+    .trends{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line)}.trend-panel{background:var(--panel);padding:14px 14px 10px;min-width:0}.trend-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:10px}.trend-head label{color:#c4c8ce}.trend-head strong{font:500 12px ui-monospace,monospace;white-space:nowrap}.trend-head small{font-size:9px;color:var(--muted);margin-left:3px}.plot{height:100px;position:relative;margin-left:24px}.plot svg{display:block;width:100%;height:100%;overflow:hidden}.axis-max{position:absolute;right:100%;top:0;font:9px ui-monospace,monospace;color:#7c8794;padding-right:5px}.axis-zero{position:absolute;right:100%;bottom:9%;font:9px ui-monospace,monospace;color:#7c8794;padding-right:5px}.time-axis{display:flex;justify-content:space-between;font:9px ui-monospace,monospace;color:#7c8794;margin:4px 0 0 24px}.chart-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:11px;pointer-events:none}.chart-line{animation:line-breathe 3s ease-in-out infinite}.chart-area{animation:area-breathe 3s ease-in-out infinite}
+    @keyframes line-breathe{0%,100%{stroke-opacity:.72}50%{stroke-opacity:1}}@keyframes area-breathe{0%,100%{opacity:.045}50%{opacity:.12}}
+    .motion-paused :is(.chart-line,.chart-area),.trend-panel:not([data-visible="true"]) :is(.chart-line,.chart-area){animation-play-state:paused}
+    @media(prefers-reduced-motion:reduce){.chart-line,.chart-area{animation:none}.chart-area{opacity:.06}}
+    .model-foot{border-top:1px solid var(--line);padding:7px 18px;font-size:11px;display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;color:var(--muted)}.model details>summary{padding:8px 18px;font-size:11px}.model .extra{grid-template-columns:repeat(3,minmax(0,1fr));font-size:11px}.model .finding{padding:10px 18px}.model .finding h3{font-size:12px}.model .finding p{font-size:11px}.config-list{max-height:55vh;overflow:auto}
+    @media(max-width:1150px){.model-main{grid-template-columns:175px minmax(0,1fr)}.trends{grid-template-columns:repeat(2,minmax(0,1fr))}.plot{height:80px}}
+    @media(max-width:650px){.model-main{grid-template-columns:1fr}.facts{border-right:0;border-bottom:1px solid var(--line)}.fact-line{display:inline-flex;margin:4px 12px 4px 0}.overview>span:not(.spacer){min-width:0;flex:1;padding:10px}.overview strong{display:block}.toolbar input{width:100%}.toolbar label{flex:1}.result-count{width:100%;margin:0}.model .extra{grid-template-columns:repeat(2,minmax(0,1fr))}.trend-head{font-size:10px}.trend-panel{padding:12px 8px}.trend-head strong{font-size:10px}.time-axis{font-size:8px}.actions{width:100%}}
   </style>
 </head>
 <body>
   <div class="topbar"><div class="brand"><span>◈</span> vLLM <small>模型监控</small></div><div class="top-actions"><span id="mode" class="pill">实时监控</span><button id="setup" class="quiet">管理模型</button></div></div>
   <main>
-    <div id="demo-notice" class="demo-notice" hidden><span><b>两个模型的面板示意</b> · 以下为固定示例数据，未连接真实推理服务。</span><a href="/">切换到真实监控 →</a></div>
-    <header><div><h1>模型服务</h1><p>看入口是否可用，以及推理是否拥堵。</p></div><div class="actions"><button id="export">导出摘要</button><button id="refresh" class="primary">↻ 刷新</button></div></header>
+    <header><div><h1>模型服务</h1><p>每行一个模型 · 真实采样趋势 · 缺失指标不按零计算</p></div><div class="actions"><label>趋势窗口 <select id="window" aria-label="趋势时间范围"><option value="2">2 分钟</option><option value="15">15 分钟</option><option value="60">1 小时</option><option value="360">6 小时</option></select></label><button id="pause" aria-pressed="false">暂停更新</button><button id="export">导出摘要</button><button id="refresh" class="primary">↻ 刷新</button></div></header>
     <div id="error" class="notice" role="alert" hidden></div>
     <div id="overview" class="overview"><span class="muted">正在读取服务状态…</span></div>
+    <div class="toolbar" id="toolbar" hidden>
+      <input id="search" type="search" placeholder="搜索模型名称或服务地址…" aria-label="搜索模型">
+      <label>状态<select id="status-filter"><option value="all">全部状态</option><option value="attention">需关注</option><option value="online">API 在线</option><option value="unavailable">指标不可用</option></select></label>
+      <label>排序<select id="sort"><option value="attention">异常优先</option><option value="name">模型名称</option><option value="waiting">等待队列最多</option><option value="throughput">输出吞吐最高</option></select></label>
+      <span class="result-count" id="result-count" role="status"></span>
+    </div>
     <section id="models" class="models" aria-label="模型服务列表"></section>
     <footer><span id="updated">正在连接…</span><span>API 探测不产生推理请求 · P95 / 吞吐统计窗口为 15 分钟</span></footer>
   </main>
@@ -42,11 +62,12 @@
     <div id="config-message" class="saved" role="status" aria-live="polite"></div>
     <p class="hint">模型配置自动保存到本地数据库，重启后仍保留。指标历史由 Prometheus 默认保存 30 天；API 探测结果目前只显示最新状态。</p>
   </dialog>
+  <script src="/charts.js"></script>
   <script>
     const $ = id => document.getElementById(id);
     const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const fmt = value => value == null ? '—' : Number(value).toLocaleString('zh-CN', {maximumFractionDigits:2});
-    const demo = location.pathname === '/demo';
+    let paused = false;
     let data = null, timer = null, busy = false;
     let config = null, editing = null, saving = false, reloadRequested = false;
     function performanceState(node) {
@@ -55,48 +76,89 @@
       if (node.findings.some(f => f[0] === 'warning')) return 'warning';
       return 'ok';
     }
-    function metric(label, value, unit, level = '') {
-      return `<div class="metric"><div class="metric-label">${label}</div><div class="metric-value ${level}">${fmt(value)}<small>${value == null ? '' : unit}</small></div></div>`;
+    // A missing discovery endpoint does not establish inference health.
+    function discoveryUnavailable(node) {return node.api.state === 'error' && node.api.message === 'HTTP 404';}
+    const expanded = new Set();
+    function needsAttention(n) {
+      return (n.api.state !== 'ok' && !discoveryUnavailable(n)) || performanceState(n) !== 'ok';
     }
-    function modelCard(project, node) {
-      const v = node.values, state = performanceState(node), apiOK = node.api.state === 'ok';
-      const apiState = apiOK ? 'ok' : node.api.state === 'error' ? 'critical' : 'warning';
-      const apiLabel = apiOK ? 'API 在线' : node.api.state === 'error' ? 'API 异常' : 'API 未配置';
-      let finding = node.findings.find(f => f[0] === 'critical') || node.findings[0];
-      if (state === 'unavailable') finding = ['warning', '暂时只有入口状态', node.metrics_configured ? '性能指标暂不可用：该端口可能未开放 /metrics，或采集尚未就绪。' : '这个入口未接入性能指标。'];
-      if (node.api.state === 'error') finding = ['critical', 'API 探测失败', node.api.message + '，请检查 URL、Key 和服务状态。'];
-      const [level, title, advice] = finding;
-      const extras = [['输入吞吐',v.input_tps,'tok/s'],['Token 间隔 P95',v.tpot == null ? null : v.tpot * 1000,'ms'],['请求耗时 P95',v.e2e,'s'],['前缀缓存命中',v.cache,'%'],['输入长度 P95',v.prompt,'tokens'],['近 1 小时抢占',v.preempt,'次']];
-      const kvColor = (v.kv || 0) >= 90 ? 'var(--red)' : 'var(--green)';
-      return `<article class="model">
-        <div class="model-head"><div class="model-icon" aria-hidden="true">${esc((project.name || project.id).slice(0,1).toUpperCase())}</div><div class="model-name"><h2>${esc(project.name || project.id)}</h2><span>${project.nodes.length > 1 ? esc(node.name || node.id) : '独立服务入口'}</span></div><span class="pill ${apiState}"><i class="dot"></i>${apiLabel}</span></div>
-        <div class="endpoint"><code title="${esc(node.api_base_url || node.metrics_url)}">${esc(node.api_base_url || node.metrics_url)}</code><span>${node.auth_configured ? 'Key 已配置' : '无 API Key'}</span></div>
-        <div class="probe"><span class="muted">API 探测响应 <b class="${apiState}">${apiOK ? fmt(node.api.latency_ms) + ' ms' : esc(node.api.message)}</b></span><span class="${state === 'unavailable' ? 'muted' : 'ok'}">${state === 'unavailable' ? '性能指标不可用' : '● 指标已接入'}</span></div>
-        <div class="metrics">${metric('正在运行',v.running,'请求')}${metric('等待队列',v.waiting,'请求',(v.waiting || 0) > 0 ? 'warning' : '')}${metric('输出吞吐',v.output_tps,'tok/s')}${metric('首字延迟 P95',v.ttft,'s')}</div>
-        <div class="capacity"><div class="capacity-label"><span class="muted">KV Cache 占用</span><strong style="color:${v.kv == null ? 'var(--muted)' : kvColor}">${fmt(v.kv)}${v.kv == null ? '' : '%'}</strong></div><div class="meter"><i style="width:${Math.min(100,Math.max(0,v.kv || 0))}%;background:${kvColor}"></i></div><small>${v.kv == null ? '未取得内部指标，不按零计算' : '入口暴露的最高占用 · 高占用伴随排队时需要关注'}</small></div>
-        <div class="finding ${level}"><h3>${level === 'ok' ? '✓ ' : '! '}${esc(title)}</h3><p>${esc(advice)}</p></div>
-        ${demo ? '' : `<div style="padding:10px 24px;border-top:1px solid var(--line)"><button class="quiet" data-edit="${esc(project.id)}">编辑配置</button></div>`}<details><summary>更多指标与诊断</summary><div class="extra">${extras.map(([label,value,unit]) => `<div>${label}<strong>${fmt(value)}${value == null ? '' : ' ' + unit}</strong></div>`).join('')}</div>${node.findings.filter(f => f[1] !== title && state !== 'unavailable').map(([l,t,a]) => `<div class="finding ${l}"><h3>${esc(t)}</h3><p>${esc(a)}</p></div>`).join('')}<p class="muted" style="font-size:12px;padding:0 24px 12px">API 响应时间为 /models 探测耗时，不是生成延迟。缺失指标显示 —。</p></details>
-      </article>`;
+    function priority(n) {
+      return (n.api.state === 'error' && !discoveryUnavailable(n)) || performanceState(n) === 'critical' ? 3 : needsAttention(n) ? 2 : 0;
+    }
+    function modelRow(p,n) {
+      const v=n.values, key=MonitorCharts.keyOf(p,n), state=performanceState(n);
+      const level=priority(n)===3?'critical':needsAttention(n)?'warning':discoveryUnavailable(n)?'muted':'ok';
+      const label=n.api.state==='error'&&!discoveryUnavailable(n)?'API 异常':discoveryUnavailable(n)?'/v1/models 探测受限':n.api.state==='ok'?'API 在线':'API 未配置';
+      const finding=n.findings.find(f=>f[0]==='critical')||n.findings[0]||['ok','指标正常',''];
+      const apiNote=discoveryUnavailable(n)?'/v1/models 返回 404，推理可用性尚未验证':n.api.message;
+      const fact=(label,value,unit='')=>`<div class="fact-line"><span>${label}</span><b>${fmt(value)}${value==null?'':unit}</b></div>`;
+      const extras=[['输入吞吐',v.input_tps,'tok/s'],['Token 间隔 P95',v.tpot==null?null:v.tpot*1000,'ms'],['请求耗时 P95',v.e2e,'s'],['前缀缓存命中',v.cache,'%'],['输入长度 P95',v.prompt,'tokens'],['近 1 小时抢占',v.preempt,'次']];
+      return `<article class="model" data-model-key="${esc(key)}"><div class="model-head"><span class="model-icon">${esc((p.name||p.id).slice(0,1))}</span><div class="model-name"><h2>${esc(p.name||p.id)}${p.nodes.length>1?' · '+esc(n.name||n.id):''}</h2><span>${esc(n.api_base_url||n.metrics_url)}</span></div><span class="pill ${level}" title="${esc(apiNote)}"><i class="dot"></i>${label}</span><button class="quiet" data-edit="${esc(p.id)}">编辑配置</button></div>
+      <div class="model-main"><div class="facts"><div class="fact-top">${fmt(v.output_tps)} <small>tok/s</small></div><div class="fact-caption">输出吞吐 · 输入 ${fmt(v.input_tps)} tok/s</div><div class="fact-line"><span>运行 / 等待</span><b>${fmt(v.running)} / ${fmt(v.waiting)}</b></div>${fact('前缀缓存命中',v.cache,'%')}${fact('KV Cache',v.kv,'%')}<div class="meter"><i style="width:${Math.min(100,Math.max(0,v.kv||0))}%;background:${v.kv>=90?'var(--amber)':'var(--green)'}"></i></div></div>
+      <div class="trends">${MonitorCharts.metrics.map(([metric,title,unit,color])=>`<div class="trend-panel" data-key="${esc(key)}" data-metric="${metric}"><div class="trend-head"><label>${title}</label><strong>${fmt(v[metric])}<small>${v[metric]==null?'':unit}</small></strong></div><div class="plot"><span class="axis-max"></span><span class="axis-zero">0</span><svg viewBox="0 0 200 100" preserveAspectRatio="none" role="img" aria-label="${esc(title+'，'+(p.name||p.id))}" data-chart><path d="M0 10H200 M0 50H200 M0 90H200 M50 0V90 M100 0V90 M150 0V90" stroke="#34383f" stroke-width=".6" vector-effect="non-scaling-stroke"/><path class="chart-area" fill="${color}"/><path class="chart-line" stroke="${color}" stroke-width="1.3" fill="none" vector-effect="non-scaling-stroke"/></svg><span class="chart-empty">正在积累采样…</span></div><div class="time-axis"><span class="axis-start"></span><span class="axis-end"></span></div></div>`).join('')}</div></div>
+      <div class="model-foot"><span class="${state==='unavailable'?'muted':finding[0]}">${esc(finding[1])}</span><span>${esc(apiNote)}</span></div><details class="diagnostics" data-key="${esc(key)}" ${expanded.has(key)?'open':''}><summary>更多指标与诊断</summary><div class="extra">${extras.map(([title,value,unit])=>`<div>${title}<strong>${fmt(value)} ${value==null?'':unit}</strong></div>`).join('')}</div>${n.findings.map(([level,title,advice])=>`<div class="finding ${level}"><h3>${esc(title)}</h3><p>${esc(advice)}</p></div>`).join('')}</details></article>`;
+    }
+    // Reconcile keyed models so refreshes and sorting preserve SVG and animation nodes.
+    function patchNode(old,fresh) {
+      if(old.nodeType!==fresh.nodeType||old.nodeName!==fresh.nodeName){old.replaceWith(fresh.cloneNode(true));return;}
+      if(old.nodeType===3){if(old.nodeValue!==fresh.nodeValue)old.nodeValue=fresh.nodeValue;return;}
+      if(old.nodeType!==1)return;
+      if(old.hasAttribute('data-chart'))return;
+      for(const attr of Array.from(old.attributes))if(attr.name!=='data-visible'&&!fresh.hasAttribute(attr.name))old.removeAttribute(attr.name);
+      for(const attr of Array.from(fresh.attributes))if(old.getAttribute(attr.name)!==attr.value)old.setAttribute(attr.name,attr.value);
+      Array.from(fresh.childNodes).forEach((next,i)=>{if(old.childNodes[i])patchNode(old.childNodes[i],next);else old.appendChild(next.cloneNode(true));});
+      while(old.childNodes.length>fresh.childNodes.length)old.lastChild.remove();
+    }
+    function showRows(visible) {
+      const host=$('models'), existing=new Map(Array.from(host.children).filter(el=>el.dataset.modelKey).map(el=>[el.dataset.modelKey,el]));
+      const keep=new Set();
+      visible.forEach(([p,n],i)=>{
+        const template=document.createElement('template');template.innerHTML=modelRow(p,n);
+        const fresh=template.content.firstElementChild,key=MonitorCharts.keyOf(p,n),old=existing.get(key);
+        const row=old||fresh;if(old)patchNode(old,fresh);keep.add(row);
+        if(host.children[i]!==row)host.insertBefore(row,host.children[i]||null);
+      });
+      for(const child of Array.from(host.children))if(!keep.has(child))child.remove();
+      MonitorCharts.observe();
+    }
+    function renderModels() {
+      if (!data) return;
+      const entries = data.projects.flatMap(p => p.nodes.map(n => [p,n]));
+      const query = $('search').value.trim().toLocaleLowerCase(), filter = $('status-filter').value;
+      const visible = entries.filter(([p,n]) => [p.name,p.id,n.name,n.api_base_url,n.metrics_url].join(' ').toLocaleLowerCase().includes(query) &&
+        (filter === 'all' || filter === 'attention' && needsAttention(n) || filter === 'online' && n.api.state === 'ok' || filter === 'unavailable' && performanceState(n) === 'unavailable'));
+      visible.sort(([a,x],[b,y]) => {
+        if ($('sort').value === 'name') return (a.name || a.id).localeCompare(b.name || b.id,'zh-CN');
+        if ($('sort').value === 'waiting') return (y.values.waiting ?? -1) - (x.values.waiting ?? -1);
+        if ($('sort').value === 'throughput') return (y.values.output_tps ?? -1) - (x.values.output_tps ?? -1);
+        return priority(y)-priority(x);
+      });
+      $('toolbar').hidden = !entries.length;
+      $('result-count').textContent = `显示 ${visible.length} / ${entries.length} 个入口`;
+      if(visible.length)showRows(visible);
+      else {
+        $('models').innerHTML = !entries.length ? `<div class="empty"><h2>接入你的第一个模型</h2><p>填写名称、URL 和 API Key，即可开始积累真实趋势。</p><div class="actions"><button class="primary" data-setup>添加模型</button></div></div>` : `<div class="empty"><h2>没有匹配的模型</h2><button data-clear-filters>清除筛选</button></div>`;
+        MonitorCharts.observe();
+      }
     }
     function render() {
       const entries = data.projects.flatMap(p => p.nodes.map(n => [p,n]));
       const online = entries.filter(([,n]) => n.api.state === 'ok').length;
-      const attention = entries.filter(([,n]) => n.api.state === 'error' || ['warning','critical'].includes(performanceState(n))).length;
-      $('mode').textContent = demo ? '示例数据' : '实时监控';
-      $('demo-notice').hidden = !demo;
-      $('overview').innerHTML = `<span><strong>${entries.length}</strong>个服务入口</span><span class="ok"><strong>${online}</strong>API 在线</span><span class="${attention ? 'warning' : 'muted'}"><strong>${attention}</strong>需关注</span><span class="spacer"></span><small>${demo ? '示例假设两个端口均开放 /metrics' : '每 ' + data.refresh_seconds + ' 秒刷新'}</small>`;
-      $('models').innerHTML = entries.length ? entries.map(([p,n]) => modelCard(p,n)).join('') : `<div class="empty"><h2>接入你的第一个模型</h2><p>每个模型填写名称、URL 和 API Key，其他自动处理。</p><div class="actions"><button class="primary" data-setup>添加模型</button><a href="/demo">先看两个模型的面板示意 →</a></div></div>`;
-      $('updated').textContent = demo ? '演示模式 · 固定示例数值' : '最近采集：' + data.collected_at;
+      const attention = entries.filter(([,n]) => needsAttention(n)).length;
+      $('mode').textContent = paused ? '已暂停' : '实时监控';
+      $('overview').innerHTML = `<span><strong>${entries.length}</strong>个服务入口</span><span class="ok"><strong>${online}</strong>API 在线</span><span class="${attention ? 'warning' : 'muted'}"><strong>${attention}</strong>需关注</span><span class="spacer"></span><small>${paused?'已暂停':'每 '+data.refresh_seconds+' 秒刷新'} · 趋势自本次打开后累积</small>`;
+      renderModels();
+      $('updated').textContent = '最近采集：' + data.collected_at;
       $('export').disabled = !entries.length;
-      $('refresh').textContent = demo ? '↻ 重载示意' : '↻ 刷新';
+      $('refresh').textContent = '↻ 刷新';
     }
     async function load() {
       if (busy) { reloadRequested = true; return; }
       busy = true; reloadRequested = false; clearTimeout(timer); $('refresh').disabled = true;
       try {
-        const r = await fetch(demo ? '/api/demo' : '/api/status', {signal:AbortSignal.timeout(60000)});
+        const r = await fetch('/api/status', {signal:AbortSignal.timeout(60000)});
         if (!r.ok) throw Error('HTTP ' + r.status);
-        data = await r.json(); render();
+        data = await r.json(); MonitorCharts.record(data); render();
         $('error').hidden = !Object.keys(data.errors).length;
         $('error').textContent = '性能指标采集暂不可用。API 在线状态仍单独探测，请检查 Prometheus 是否启动。';
       } catch (error) {
@@ -105,7 +167,7 @@
       } finally {
         busy = false; $('refresh').disabled = false;
         if (reloadRequested) timer = setTimeout(load, 0);
-        else if (!demo) timer = setTimeout(load, (data?.refresh_seconds || 30) * 1000);
+        else if (!paused) timer = setTimeout(load, (data?.refresh_seconds || 3) * 1000);
       }
     }
     function configError(message = '') {
@@ -138,7 +200,7 @@
       if (saving) return;
       $('guide').showModal();
       $('config-message').textContent = '';
-      $('config-description').textContent = demo ? '这里管理真实模型。保存后切换到真实监控，示例数据不会写入数据库。' : '保存后立即生效，无需重启。性能采集约 30 秒内发现新配置。';
+      $('config-description').textContent = '保存后立即生效，无需重启。性能采集约 30 秒内发现新配置。';
       resetForm();
       $('save-model').disabled = true;
       try {
@@ -173,7 +235,6 @@
         resetForm();
         $('config-message').textContent = '已保存，无需重启。正在更新监控。';
         await readConfig();
-        if (demo) { location.href = '/'; return; }
         load();
       } catch (error) { configError(error.message); $('config-message').textContent = ''; }
       finally { setSaving(false); }
@@ -190,7 +251,7 @@
         await writeConfig('DELETE', '/api/models/' + encodeURIComponent(model.id), {version:model.version});
         resetForm(); await readConfig();
         $('config-message').textContent = '已移除，已有指标历史仍保留。';
-        if (!demo) load();
+        load();
       } catch (error) { configError(error.message); }
       finally { setSaving(false); }
     };
@@ -206,16 +267,32 @@
       const button = event.target.closest('[data-edit]');
       if (button) openConfig(button.dataset.edit);
     });
+    $('search').oninput = renderModels;
+    $('status-filter').onchange = renderModels;
+    $('sort').onchange = renderModels;
+    $('models').addEventListener('toggle', event => {
+      if (!event.target.matches('.diagnostics')) return;
+      if (event.target.open && event.target.isConnected) expanded.add(event.target.dataset.key);
+      else expanded.delete(event.target.dataset.key);
+    }, true);
+    $('models').addEventListener('click', event => {
+      if (event.target.closest('[data-clear-filters]')) {
+        $('search').value = ''; $('status-filter').value = 'all'; renderModels();
+      }
+    });
     $('refresh').onclick = load;
     $('export').onclick = async () => {
       try {
-        const r = await fetch(demo ? '/api/demo/report' : '/api/report');
+        const r = await fetch('/api/report');
         if (!r.ok) throw Error('HTTP ' + r.status);
         const url = URL.createObjectURL(await r.blob()), a = document.createElement('a');
-        a.href = url; a.download = demo ? 'vllm-demo-report.txt' : 'vllm-report.txt'; a.click();
+        a.href = url; a.download = 'vllm-report.txt'; a.click();
         setTimeout(() => URL.revokeObjectURL(url), 1000);
       } catch (error) { $('error').hidden = false; $('error').textContent = '导出失败：' + error.message; }
     };
+    $('window').onchange=()=>MonitorCharts.setWindow(Number($('window').value));
+    MonitorCharts.setWindow(Number($('window').value));
+    $('pause').onclick=()=>{paused=!paused;clearTimeout(timer);MonitorCharts.pause(paused);$('pause').textContent=paused?'继续更新':'暂停更新';$('pause').setAttribute('aria-pressed',paused);if(data)render();if(!paused)load();};
     load();
   </script>
 </body>
