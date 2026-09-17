@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {History,geometry,keyOf}=require('../dashboard/charts.js');
+const {History,geometry,gapLimit,keyOf}=require('../dashboard/charts.js');
 const node=(values={},url='http://model/v1')=>({id:'n',api_base_url:url,values:{up:1,...values}});
 const snapshot=n=>({projects:[{id:'p',nodes:[n]}]});
 test('real values only, cached snapshots deduplicate, URLs isolate history',()=>{
@@ -21,6 +21,13 @@ test('missing values and long polling gaps break lines and filled regions',()=>{
  const result=geometry(samples,'kv',0,25000,100,7500);
  assert.equal((result.line.match(/M/g)||[]).length,3);
  assert.equal((result.area.match(/Z/g)||[]).length,2);
+});
+test('gap threshold allows normal collection latency without hiding a stalled poller',()=>{
+ assert.equal(gapLimit(3000),12000);
+ const normal=[0,3000,11000].map(time=>({time,values:{kv:50}}));
+ const stalled=[0,3000,16000].map(time=>({time,values:{kv:50}}));
+ assert.equal((geometry(normal,'kv',0,20000,100,gapLimit(3000)).line.match(/M/g)||[]).length,1);
+ assert.equal((geometry(stalled,'kv',0,20000,100,gapLimit(3000)).line.match(/M/g)||[]).length,2);
 });
 test('time axis moves monotonically across a newly appended sample',()=>{
  const a=[0,3000,6000].map(time=>({time,values:{kv:50}}));

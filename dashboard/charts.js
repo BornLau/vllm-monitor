@@ -8,6 +8,10 @@
     ['waiting', '等待队列', 'req', '#ffb357'],
     ['kv', 'KV Cache', '%', '#73bf69']
   ];
+  // Polling is scheduled after the previous request completes. The backend may
+  // legitimately spend up to five seconds querying an upstream, so a healthy
+  // three-second refresh can produce samples more than 7.5 seconds apart.
+  const gapLimit = interval => Math.max(interval * 4, interval + 6000);
   class History {
     constructor() { this.entries = new Map(); }
     record(snapshot, time) {
@@ -64,7 +68,7 @@
     }
     return {line, area, count};
   }
-  const api = {History, geometry, keyOf, metrics};
+  const api = {History, geometry, gapLimit, keyOf, metrics};
   if (typeof module !== 'undefined') module.exports = api;
   if (!root.document) return;
   const history = new History(); let windowMs = 900000, interval = 3000, paused = false, frozen = null, latest = null, frame = null, lastDraw = 0;
@@ -89,7 +93,7 @@
     for (const panel of visible) {
       const entry = history.entries.get(panel.dataset.key), metric = panel.dataset.metric;
       const max = metric === 'kv' ? Math.max(100,entry?.maxima.kv || 100) : entry?.maxima[metric] || 1;
-      const paths = geometry(entry?.samples || [], metric, end-windowMs, end, max, interval*2.5);
+      const paths = geometry(entry?.samples || [], metric, end-windowMs, end, max, gapLimit(interval));
       panel.querySelector('.chart-line').setAttribute('d', paths.line);
       panel.querySelector('.chart-area').setAttribute('d', paths.area);
       panel.querySelector('.chart-empty').hidden = paths.count >= 2;
