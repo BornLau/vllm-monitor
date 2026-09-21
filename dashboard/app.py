@@ -53,14 +53,16 @@ def queries():
     def total(name):
         return f"sum by ({GROUP}) ({metric(name)})"
 
-    def rate(name):
-        return f"sum by ({GROUP}) (rate({metric(name)}[15m]))"
+    def instant_rate(name):
+        # The range only locates samples; irate uses the latest two, not a
+        # minute-long average. Apply before aggregation to handle resets.
+        return f"sum by ({GROUP}) (irate({metric(name)}[1m]))"
 
     def p95(name):
-        return f"histogram_quantile(0.95,sum by (le,{GROUP}) (rate({metric(name + '_bucket')}[15m])))"
+        return f"histogram_quantile(0.95,sum by (le,{GROUP}) (irate({metric(name + '_bucket')}[1m])))"
 
     kv = metric("kv_cache_usage_perc")
-    return {
+    expressions = {
         "up": f"min by ({GROUP}) (up{SELECTOR})",
         "running": total("num_requests_running"),
         "waiting": total("num_requests_waiting"),
@@ -71,11 +73,21 @@ def queries():
         "tpot": p95("inter_token_latency_seconds"),
         "prefill": p95("request_prefill_time_seconds"),
         "prompt": p95("request_prompt_tokens"),
-        "cache": f'100 * {rate("prefix_cache_hits_total")} / {rate("prefix_cache_queries_total")}',
+        "cache": f'100 * {instant_rate("prefix_cache_hits_total")} / {instant_rate("prefix_cache_queries_total")}',
         "preempt": f'sum by ({GROUP}) (increase({metric("num_preemptions_total")}[1h]))',
-        "input_tps": rate("prompt_tokens_total"),
-        "output_tps": rate("generation_tokens_total"),
+        "input_tps": instant_rate("prompt_tokens_total"),
+        "output_tps": instant_rate("generation_tokens_total"),
     }
+
+    # Positive activity includes requests that finished between scrapes. Missing
+    # evidence is unknown, not idle: all signals must exist to establish zero.
+    signals = [expressions[name] for name in ("running", "waiting", "input_tps", "output_tps")]
+    signals += [instant_rate(name + "_count") for name in
+                ("e2e_request_latency_seconds", "time_to_first_token_seconds")]
+    active = " or ".join(f"({expr} > 0)" for expr in signals)
+    idle = f" and on ({GROUP}) ".join(f"({expr} == 0)" for expr in signals)
+    expressions["activity"] = f"(({active}) or ({idle})) > bool 0"
+    return expressions
 
 
 QUERIES = queries()
@@ -189,6 +201,47 @@ def query(promql):
     return values
 
 
+HISTORY_METRICS = ("output_tps", "ttft", "waiting", "kv")
+HISTORY_WINDOWS = (2, 15, 60, 360, 720, 1440)
+
+
+def historical_samples(minutes):
+    """Read persisted history; bound each series to approximately 1200 points."""
+    projects = current_configuration()[1]
+    end = int(time.time())
+    step = max(3, math.ceil(minutes * 60 / 1200))
+    start = end - minutes * 60
+
+    def read(name):
+        expr = f'({QUERIES[name]}) and on ({GROUP}) ({QUERIES["up"]} == 1) and on ({GROUP}) ({QUERIES["activity"]} > 0)'
+        params = urllib.parse.urlencode(dict(query=expr, start=start, end=end, step=step))
+        payload = json.loads(request(f"{PROMETHEUS}/api/v1/query_range?" + params))
+        if payload.get("status") != "success":
+            raise ValueError("Prometheus 历史查询失败")
+        return payload.get("data", {}).get("result", [])
+
+    series = {}
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        tasks = {name: pool.submit(read, name) for name in HISTORY_METRICS}
+        for name, task in tasks.items():
+            for result in task.result():
+                labels = result["metric"]
+                identity = (labels.get("monitor_project"), labels.get("monitor_node"))
+                points = series.setdefault(identity, {})
+                for timestamp, raw in result["values"]:
+                    value = float(raw)
+                    points.setdefault(round(float(timestamp) * 1000), {})[name] = value if math.isfinite(value) else None
+    entries = []
+    for project in projects:
+        for node in project["nodes"]:
+            points = series.get((project["id"], node["id"]), {}) if node.get("metrics_url") else {}
+            entries.append(dict(project_id=project["id"], node={key: node.get(key, "") for key in
+                                ("id", "api_base_url", "metrics_url")},
+                                samples=[dict(time=t * 1000, values={name: points.get(t * 1000, {}).get(name)
+                                         for name in HISTORY_METRICS}) for t in range(start, end + 1, step)]))
+    return dict(entries=entries, step_ms=step * 1000)
+
+
 def probe(node):
     if not node.get("api_base_url"):
         return {"state": "unconfigured", "message": "未配置 API 探测"}
@@ -246,8 +299,15 @@ def collect(projects):
                 # A failed scrape must not present old gauge/rate values as current.
                 if v["up"] != 1:
                     v = {name: v["up"] if name == "up" else None for name in QUERIES}
+                activity = "active" if (v.get("activity") or 0) > 0 else "idle" if v.get("activity") == 0 else "unknown"
+                findings = diagnose(v, bool(node.get("metrics_url")))
+                # Keep instantaneous gauges and event totals truthful. Performance
+                # statistics are only available for confirmed active intervals.
+                if activity != "active":
+                    for name in ("input_tps", "output_tps", "ttft", "e2e", "tpot", "prefill", "prompt", "cache"):
+                        v[name] = None
                 public = {key: node.get(key, "") for key in ("id", "name", "role", "api_base_url", "metrics_url")}
-                public.update(values=v, api=probes[identity].result(), findings=diagnose(v, bool(node.get("metrics_url"))), auth_configured=bool(node.get("api_key_env") or node.get("_api_key")), metrics_configured=bool(node.get("metrics_url")))
+                public.update(values=v, activity=activity, api=probes[identity].result(), findings=findings, auth_configured=bool(node.get("api_key_env") or node.get("_api_key")), metrics_configured=bool(node.get("metrics_url")))
                 item["nodes"].append(public)
             result.append(item)
     return {"collected_at_ms": int(time.time() * 1000), "collected_at": time.strftime("%Y-%m-%d %H:%M:%S %z"), "refresh_seconds": REFRESH_SECONDS, "projects": result, "errors": errors}
@@ -374,6 +434,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, "text/javascript; charset=utf-8", Path(__file__).with_name("charts.js").read_bytes())
         if path == "/health":
             return self.send(200, "text/plain", b"ok\n")
+        if path == "/api/history":
+            try:
+                minutes = int(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("minutes", ["2"])[0])
+                if minutes not in HISTORY_WINDOWS:
+                    raise ValueError("无效历史范围")
+            except ValueError:
+                return self.json_response(400, {"error": "不支持的历史范围"})
+            try:
+                return self.json_response(200, historical_samples(minutes))
+            except Exception as exc:
+                return self.json_response(502, {"error": safe_error(exc)})
         if path == "/api/targets":
             return self.send(200, "application/json", json.dumps(targets()).encode())
         if path.startswith("/scrape/"):

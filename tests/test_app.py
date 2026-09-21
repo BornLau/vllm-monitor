@@ -98,6 +98,23 @@ class MonitorTests(unittest.TestCase):
         self.assertIsNone(data["projects"][1]["nodes"][0]["values"]["running"])
         self.assertNotIn("api_key_env", json.dumps(data))
 
+    def test_activity_filter_preserves_short_requests_and_live_gauges(self):
+        for activity, expected in [(0, "idle"), (1, "active"), (None, "unknown")]:
+            with self.subTest(activity=activity):
+                raw = {name: 0 for name in app.QUERIES}
+                raw.update(up=1, activity=activity, output_tps=50, kv=25, preempt=2)
+                def query(expr):
+                    name = next(name for name, value in app.QUERIES.items() if value == expr)
+                    return {("one", "engine"): raw[name]}
+                with patch.object(app, "query", side_effect=query), \
+                        patch.object(app, "probe", return_value={"state": "ok", "message": "ok"}):
+                    node = app.collect([project()])["projects"][0]["nodes"][0]
+                self.assertEqual(node["activity"], expected)
+                self.assertEqual(node["values"]["running"], 0)
+                self.assertEqual(node["values"]["kv"], 25)
+                self.assertEqual(node["values"]["preempt"], 2)
+                self.assertEqual(node["values"]["output_tps"], 50 if activity == 1 else None)
+
     def test_prometheus_failure_surfaces(self):
         with patch.object(app, "query", side_effect=RuntimeError("secret upstream content")), patch.object(app, "probe", return_value={"state": "error", "message": "HTTP 401"}):
             data = app.collect([project()])
@@ -111,6 +128,35 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(targets[1]["labels"]["__metrics_path__"], "/scrape/two/engine")
         self.assertNotIn("TEST_KEY", json.dumps(targets))
         self.assertNotIn("localhost", json.dumps(targets))
+
+    def test_history_filters_identities_preserves_gaps_and_sanitizes_nan(self):
+        payload = {"status": "success", "data": {"result": [
+            {"metric": {"monitor_project": "one", "monitor_node": "engine"},
+             "values": [[880, "5"], [886, "NaN"], [1000, "9"]]},
+            {"metric": {"monitor_project": "removed", "monitor_node": "engine"},
+             "values": [[880, "123"]]}]}}
+        with patch.object(app, "current_configuration", return_value=(1, [project()])), \
+                patch.object(app.time, "time", return_value=1000), \
+                patch.object(app, "request", return_value=json.dumps(payload).encode()) as request:
+            result = app.historical_samples(2)
+        self.assertEqual(result["step_ms"], 3000)
+        self.assertEqual(len(result["entries"]), 1)
+        samples = result["entries"][0]["samples"]
+        self.assertEqual(samples[0]["values"]["output_tps"], 5)
+        self.assertIsNone(samples[1]["values"]["output_tps"])
+        self.assertIsNone(samples[2]["values"]["output_tps"])
+        self.assertEqual(samples[-1]["values"]["output_tps"], 9)
+        self.assertNotIn("api_key", json.dumps(result))
+        for call in request.call_args_list:
+            params = urllib.parse.parse_qs(urllib.parse.urlsplit(call.args[0]).query)
+            self.assertIn("and on (monitor_project,monitor_node)", params["query"][0])
+            self.assertEqual(params["step"], ["3"])
+
+    def test_history_failure_is_not_reported_as_empty_success(self):
+        with patch.object(app, "current_configuration", return_value=(1, [project()])), \
+                patch.object(app, "request", return_value=b'{"status":"error"}'):
+            with self.assertRaises(ValueError):
+                app.historical_samples(1440)
 
     def test_report_utf8_limit(self):
         with patch.object(app, "query", return_value={}), patch.object(app, "probe", return_value={"state": "ok", "message": "ok"}):

@@ -1,12 +1,12 @@
-/* Live session history. No generated samples; refresh starts a new history. */
+/* Persisted Prometheus history followed by live samples. */
 (function (root) {
   const finite = value => typeof value === 'number' && Number.isFinite(value);
   const keyOf = (project, node) => JSON.stringify([project.id, node.id, node.api_base_url, node.metrics_url]);
   const metrics = [
-    ['output_tps', '输出吞吐', 'tok/s', '#73bf69'],
-    ['ttft', '首字延迟 P95', 's', '#5794f2'],
-    ['waiting', '等待队列', 'req', '#ffb357'],
-    ['kv', 'KV Cache', '%', '#73bf69']
+    ['output_tps', '输出吞吐', 'tok/s', '#95b6a2'],
+    ['ttft', '首字延迟 P95', 's', '#8faaca'],
+    ['waiting', '等待队列', 'req', '#c8b18a'],
+    ['kv', 'KV Cache', '%', '#95b6a2']
   ];
   // Polling is scheduled after the previous request completes. The backend may
   // legitimately spend up to five seconds querying an upstream, so a healthy
@@ -14,15 +14,32 @@
   const gapLimit = interval => Math.max(interval * 4, interval + 6000);
   class History {
     constructor() { this.entries = new Map(); }
+    merge(payload) {
+      for (const item of payload.entries) {
+        const key = keyOf({id:item.project_id}, item.node);
+        const entry = this.entries.get(key) || {samples:[], maxima:{}};
+        // Current-session samples win where timestamps coincide.
+        const points = new Map(item.samples.map(sample => [sample.time, sample]));
+        for (const sample of entry.samples) points.set(sample.time, sample);
+        entry.samples = [...points.values()].sort((a,b) => a.time-b.time);
+        const cutoff = (entry.samples.at(-1)?.time || 0) - 86400000;
+        entry.samples = entry.samples.filter(sample => sample.time >= cutoff).slice(-28801);
+        entry.historyStep = payload.step_ms;
+        entry.maxima = {};
+        for (const sample of entry.samples) for (const [name] of metrics)
+          if (finite(sample.values[name])) entry.maxima[name] = Math.max(entry.maxima[name] || 1, sample.values[name]*1.2);
+        this.entries.set(key, entry);
+      }
+    }
     record(snapshot, time) {
       const active = new Set();
       for (const project of snapshot.projects) for (const node of project.nodes) {
         const key = keyOf(project, node); active.add(key);
         const entry = this.entries.get(key) || {samples: [], maxima: {}};
         if (!entry.samples.length || time > entry.samples.at(-1).time) {
-          const values = Object.fromEntries(metrics.map(([name]) => [name, node.values.up === 1 && finite(node.values[name]) ? node.values[name] : null]));
+          const values = Object.fromEntries(metrics.map(([name]) => [name, node.activity === 'active' && node.values.up === 1 && finite(node.values[name]) ? node.values[name] : null]));
           entry.samples.push({time, values});
-          while (entry.samples.length > 7201 || (entry.samples.length && entry.samples[0].time < time - 21600000)) entry.samples.shift();
+          while (entry.samples.length > 28801 || (entry.samples.length && entry.samples[0].time < time - 86400000)) entry.samples.shift();
           for (const [name] of metrics) if (finite(values[name])) entry.maxima[name] = Math.max(entry.maxima[name] || 1, values[name] * 1.2);
         }
         this.entries.set(key, entry);
@@ -93,7 +110,7 @@
     for (const panel of visible) {
       const entry = history.entries.get(panel.dataset.key), metric = panel.dataset.metric;
       const max = metric === 'kv' ? Math.max(100,entry?.maxima.kv || 100) : entry?.maxima[metric] || 1;
-      const paths = geometry(entry?.samples || [], metric, end-windowMs, end, max, gapLimit(interval));
+      const paths = geometry(entry?.samples || [], metric, end-windowMs, end, max, Math.max(gapLimit(interval), (entry?.historyStep || 0) * 1.5));
       panel.querySelector('.chart-line').setAttribute('d', paths.line);
       panel.querySelector('.chart-area').setAttribute('d', paths.area);
       panel.querySelector('.chart-empty').hidden = paths.count >= 2;
@@ -113,6 +130,7 @@
   document.addEventListener('visibilitychange',motion);
   root.MonitorCharts = {...api, observe,
     record(snapshot) {interval=Math.max(3000,snapshot.refresh_seconds*1000); const time=snapshot.collected_at_ms; if(!finite(time))return; history.record(snapshot,time);latest=time;motion();},
+    merge(payload) {history.merge(payload);draw(true);},
     setWindow(minutes) {windowMs=minutes*60000;draw(true);},
     pause(value) {paused=value;frozen=value?Date.now()-interval:null;motion();draw(true);},
   };
