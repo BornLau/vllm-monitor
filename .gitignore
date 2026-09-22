@@ -21,3 +21,6 @@ htmlcov/
 
 # macOS metadata
 .DS_Store
+
+# Local design reference
+/style.md
