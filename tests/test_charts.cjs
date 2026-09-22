@@ -55,15 +55,21 @@ test('persisted history merges in time order without overwriting live samples or
  assert.equal((geometry(points,'output_tps',0,10000,40,12000).line.match(/M/g)||[]).length,2);
 });
 
-test('idle and unknown segments break all curves while active zero gauges remain valid',()=>{
- const history=new History(),n=node({output_tps:12,waiting:0,kv:30});
+test('idle curves stay continuous, gauges survive unknown activity, failures stay missing',()=>{
+ const history=new History(),n=node({output_tps:12,ttft:2,waiting:0,kv:30});
  history.record(snapshot(n),3000);
- n.activity='idle';history.record(snapshot(n),6000);
- n.activity='unknown';history.record(snapshot(n),9000);
- n.activity='active';history.record(snapshot(n),12000);
+ n.activity='idle';n.values.output_tps=null;n.values.ttft=null;
+ history.record(snapshot(n),6000);
+ n.activity='active';n.values.output_tps=15;n.values.ttft=3;
+ history.record(snapshot(n),9000);
  const samples=history.entries.get(keyOf({id:'p'},n)).samples;
- assert.equal(samples[0].values.waiting,0);
- for(const i of [1,2])assert.ok(Object.values(samples[i].values).every(v=>v===null));
- assert.equal(samples[3].values.output_tps,12);
- assert.equal((geometry(samples,'kv',0,15000,100,12000).line.match(/M/g)||[]).length,2);
+ assert.deepEqual(samples[1].values,{output_tps:0,ttft:0,waiting:0,kv:30});
+ for(const metric of ['output_tps','ttft','waiting','kv'])
+   assert.equal((geometry(samples,metric,0,10000,100,12000).line.match(/M/g)||[]).length,1);
+ n.activity='unknown';history.record(snapshot(n),12000);
+ assert.deepEqual(samples[3].values,{output_tps:null,ttft:null,waiting:0,kv:30});
+ n.activity='idle';n.values.up=0;history.record(snapshot(n),15000);
+ assert.ok(Object.values(samples[4].values).every(v=>v===null));
+ n.values.up=1;n.values.kv=null;history.record(snapshot(n),18000);
+ assert.equal(samples[5].values.kv,null);
 });

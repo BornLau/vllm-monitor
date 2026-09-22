@@ -152,6 +152,22 @@ class MonitorTests(unittest.TestCase):
             self.assertIn("and on (monitor_project,monitor_node)", params["query"][0])
             self.assertEqual(params["step"], ["3"])
 
+    def test_history_idle_baselines_and_gauges_use_live_chart_rules(self):
+        with patch.object(app, "current_configuration", return_value=(1, [project()])), \
+                patch.object(app, "request", return_value=b'{"status":"success","data":{"result":[]}}') as request:
+            app.historical_samples(2)
+        expressions = [urllib.parse.parse_qs(urllib.parse.urlsplit(call.args[0]).query)["query"][0]
+                       for call in request.call_args_list]
+        for name in app.HISTORY_METRICS:
+            expr = next(expr for expr in expressions if expr.startswith("(" + app.QUERIES[name] + ")")
+                        or expr.startswith("(((" + app.QUERIES[name] + ")"))
+            self.assertIn(f'({app.QUERIES["up"]} == 1)', expr)
+            if name in ("output_tps", "ttft"):
+                self.assertIn(f'0 * ({app.QUERIES["activity"]} == 0)', expr)
+                self.assertIn(f'({app.QUERIES["activity"]} > 0)', expr)
+            else:
+                self.assertNotIn(app.QUERIES["activity"], expr)
+
     def test_history_failure_is_not_reported_as_empty_success(self):
         with patch.object(app, "current_configuration", return_value=(1, [project()])), \
                 patch.object(app, "request", return_value=b'{"status":"error"}'):

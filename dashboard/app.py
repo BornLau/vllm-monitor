@@ -58,8 +58,8 @@ def queries():
         # minute-long average. Apply before aggregation to handle resets.
         return f"sum by ({GROUP}) (irate({metric(name)}[1m]))"
 
-    def p95(name):
-        return f"histogram_quantile(0.95,sum by (le,{GROUP}) (irate({metric(name + '_bucket')}[1m])))"
+    def p50(name):
+        return f"histogram_quantile(0.50,sum by (le,{GROUP}) (irate({metric(name + '_bucket')}[1m])))"
 
     kv = metric("kv_cache_usage_perc")
     expressions = {
@@ -68,11 +68,11 @@ def queries():
         "waiting": total("num_requests_waiting"),
         "kv": f"max by ({GROUP}) ({kv}) * 100",
         "imbalance": f"(max by ({GROUP}) ({kv}) - min by ({GROUP}) ({kv})) * 100",
-        "ttft": p95("time_to_first_token_seconds"),
-        "e2e": p95("e2e_request_latency_seconds"),
-        "tpot": p95("inter_token_latency_seconds"),
-        "prefill": p95("request_prefill_time_seconds"),
-        "prompt": p95("request_prompt_tokens"),
+        "ttft": p50("time_to_first_token_seconds"),
+        "e2e": p50("e2e_request_latency_seconds"),
+        "tpot": p50("inter_token_latency_seconds"),
+        "prefill": p50("request_prefill_time_seconds"),
+        "prompt": p50("request_prompt_tokens"),
         "cache": f'100 * {instant_rate("prefix_cache_hits_total")} / {instant_rate("prefix_cache_queries_total")}',
         "preempt": f'sum by ({GROUP}) (increase({metric("num_preemptions_total")}[1h]))',
         "input_tps": instant_rate("prompt_tokens_total"),
@@ -201,6 +201,114 @@ def query(promql):
     return values
 
 
+STAT_WINDOWS = {"24h": "1d", "7d": "7d", "30d": "30d"}
+
+
+def usage_statistics(window):
+    """Counter increases over retained history, isolated by endpoint and model."""
+    duration = STAT_WINDOWS[window]
+    projects = current_configuration()[1]
+    end = int(time.time())
+    counters = {"requests": "request_success_total", "input_tokens": "prompt_tokens_total",
+                "output_tokens": "generation_tokens_total"}
+
+    def read(metric):
+        expr = f"sum by ({GROUP},model_name) (increase(vllm:{metric}{SELECTOR}[{duration}]))"
+        params = urllib.parse.urlencode({"query": expr, "time": end})
+        payload = json.loads(request(f"{PROMETHEUS}/api/v1/query?" + params))
+        if payload.get("status") != "success":
+            raise ValueError("统计查询失败")
+        return payload.get("data", {}).get("result", [])
+
+    series = {}
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        tasks = {name: pool.submit(read, metric) for name, metric in counters.items()}
+        for name, task in tasks.items():
+            for result in task.result():
+                labels = result["metric"]
+                identity = (labels.get("monitor_project"), labels.get("monitor_node"), labels.get("model_name", ""))
+                value = float(result["value"][1])
+                series.setdefault(identity, {})[name] = max(0, value) if math.isfinite(value) else None
+
+    def values(raw):
+        result = {key: raw.get(key) for key in counters}
+        result["total_tokens"] = (result["input_tokens"] + result["output_tokens"]
+                                  if all(result[k] is not None for k in ("input_tokens", "output_tokens")) else None)
+        return result
+
+    rows = []
+    for project in projects:
+        for node in project["nodes"]:
+            if not node.get("metrics_url"):
+                continue
+            matches = [(key[2], raw) for key, raw in series.items() if key[:2] == (project["id"], node["id"])]
+            for model, raw in matches or [("", {})]:
+                rows.append(dict(project=project.get("name") or project["id"], node=node.get("name") or node["id"],
+                                 model=model or "未提供 model_name", **values(raw)))
+    totals = {key: sum(row[key] for row in rows) if rows and all(row[key] is not None for row in rows) else None
+              for key in (*counters, "total_tokens")}
+    return dict(window=window, end=end, rows=rows, totals=totals)
+
+
+AVERAGE_WINDOWS = ("12h", "24h")
+AVERAGE_STEP = 3  # Match prometheus.yml; independent of chart display resolution.
+
+
+def average_queries(window):
+    expressions = {}
+    for direction, metric in (("input", "prompt_tokens_total"), ("output", "generation_tokens_total")):
+        raw = f"vllm:{metric}{SELECTOR}"
+        # Fresh counters and successful scrapes only. Filter individual series
+        # before aggregation so stale workers cannot inflate throughput.
+        fresh = f"(time() - timestamp({raw}) < {AVERAGE_STEP * 2})"
+        rate = f"sum by ({GROUP},model_name) (irate({raw}[1m]) and {fresh})"
+        rate = f"(({rate}) and on ({GROUP}) ({QUERIES['up']} == 1))"
+        positive = f"({rate} > 0)[{window}:{AVERAGE_STEP}s]"
+        expressions[direction + "_average"] = f"avg_over_time({positive})"
+        expressions[direction + "_active_seconds"] = f"count_over_time({positive}) * {AVERAGE_STEP}"
+        expressions[direction + "_observed_seconds"] = f"count_over_time(({rate} >= 0)[{window}:{AVERAGE_STEP}s]) * {AVERAGE_STEP}"
+    return expressions
+
+
+def throughput_averages(window):
+    if window not in AVERAGE_WINDOWS:
+        raise ValueError("不支持的平均值范围")
+    projects = current_configuration()[1]
+    end = int(time.time())
+    expressions = average_queries(window)
+
+    def read(expr):
+        params = urllib.parse.urlencode({"query": expr, "time": end})
+        payload = json.loads(request(f"{PROMETHEUS}/api/v1/query?" + params))
+        if payload.get("status") != "success":
+            raise ValueError("平均吞吐查询失败")
+        return payload.get("data", {}).get("result", [])
+
+    series = {}
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        tasks = {key: pool.submit(read, expr) for key, expr in expressions.items()}
+        for key, task in tasks.items():
+            for result in task.result():
+                labels = result["metric"]
+                identity = (labels.get("monitor_project"), labels.get("monitor_node"), labels.get("model_name", ""))
+                value = float(result["value"][1])
+                series.setdefault(identity, {})[key] = value if math.isfinite(value) and value >= 0 else None
+    rows = []
+    for project in projects:
+        for node in project["nodes"]:
+            if not node.get("metrics_url"):
+                continue
+            matches = [(key[2], raw) for key, raw in series.items() if key[:2] == (project["id"], node["id"])]
+            for model, raw in matches or [("", {})]:
+                values = {key: raw.get(key) for key in expressions}
+                for direction in ("input", "output"):
+                    if values[direction + "_observed_seconds"] is not None and values[direction + "_active_seconds"] is None:
+                        values[direction + "_active_seconds"] = 0
+                rows.append(dict(project=project.get("name") or project["id"], node=node.get("name") or node["id"],
+                                 model=model or "未提供 model_name", **values))
+    return dict(window=window, end=end, step_seconds=AVERAGE_STEP, rows=rows)
+
+
 HISTORY_METRICS = ("output_tps", "ttft", "waiting", "kv")
 HISTORY_WINDOWS = (2, 15, 60, 360, 720, 1440)
 
@@ -213,7 +321,13 @@ def historical_samples(minutes):
     start = end - minutes * 60
 
     def read(name):
-        expr = f'({QUERIES[name]}) and on ({GROUP}) ({QUERIES["up"]} == 1) and on ({GROUP}) ({QUERIES["activity"]} > 0)'
+        expr = QUERIES[name]
+        if name in ("output_tps", "ttft"):
+            # Match live charts: confirmed idle intervals use the baseline;
+            # unknown activity and active intervals without observations do not.
+            expr = (f'(({expr}) and on ({GROUP}) ({QUERIES["activity"]} > 0))'
+                    f' or on ({GROUP}) (0 * ({QUERIES["activity"]} == 0))')
+        expr = f'({expr}) and on ({GROUP}) ({QUERIES["up"]} == 1)'
         params = urllib.parse.urlencode(dict(query=expr, start=start, end=end, step=step))
         payload = json.loads(request(f"{PROMETHEUS}/api/v1/query_range?" + params))
         if payload.get("status") != "success":
@@ -430,6 +544,30 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_response(200, dict(STORE.list_public(), token=CONFIG_TOKEN))
         if path == "/":
             return self.send(200, "text/html; charset=utf-8", INDEX)
+        if path == "/statistics":
+            return self.send(200, "text/html; charset=utf-8", Path(__file__).with_name("statistics.html").read_bytes())
+        if path == "/api/averages":
+            window = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("window", ["12h"])[0]
+            if window not in AVERAGE_WINDOWS:
+                return self.json_response(400, {"error": "平均值仅支持 12 / 24 小时"})
+            try:
+                return self.json_response(200, throughput_averages(window))
+            except Exception as exc:
+                return self.json_response(502, {"error": safe_error(exc)})
+        if path == "/api/statistics":
+            window = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("window", ["30d"])[0]
+            if window not in STAT_WINDOWS:
+                return self.json_response(400, {"error": "不支持的统计范围"})
+            try:
+                return self.json_response(200, usage_statistics(window))
+            except Exception as exc:
+                return self.json_response(502, {"error": safe_error(exc)})
+        if path == "/theme.css":
+            return self.send(200, "text/css; charset=utf-8", Path(__file__).with_name("theme.css").read_bytes())
+        if path == "/statistics-bars.js":
+            return self.send(200, "text/javascript; charset=utf-8", Path(__file__).with_name("statistics-bars.js").read_bytes())
+        if path == "/averages.js":
+            return self.send(200, "text/javascript; charset=utf-8", Path(__file__).with_name("averages.js").read_bytes())
         if path == "/charts.js":
             return self.send(200, "text/javascript; charset=utf-8", Path(__file__).with_name("charts.js").read_bytes())
         if path == "/health":

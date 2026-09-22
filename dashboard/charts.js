@@ -3,10 +3,10 @@
   const finite = value => typeof value === 'number' && Number.isFinite(value);
   const keyOf = (project, node) => JSON.stringify([project.id, node.id, node.api_base_url, node.metrics_url]);
   const metrics = [
-    ['output_tps', '输出吞吐', 'tok/s', '#95b6a2'],
-    ['ttft', '首字延迟 P95', 's', '#8faaca'],
-    ['waiting', '等待队列', 'req', '#c8b18a'],
-    ['kv', 'KV Cache', '%', '#95b6a2']
+    ['output_tps', '输出吞吐', 'tok/s', '#527be9'],
+    ['ttft', '首字延迟 P50', 's', '#16a6a1'],
+    ['waiting', '等待队列', 'req', '#d4a148'],
+    ['kv', 'KV Cache', '%', '#527be9']
   ];
   // Polling is scheduled after the previous request completes. The backend may
   // legitimately spend up to five seconds querying an upstream, so a healthy
@@ -37,7 +37,15 @@
         const key = keyOf(project, node); active.add(key);
         const entry = this.entries.get(key) || {samples: [], maxima: {}};
         if (!entry.samples.length || time > entry.samples.at(-1).time) {
-          const values = Object.fromEntries(metrics.map(([name]) => [name, node.activity === 'active' && node.values.up === 1 && finite(node.values[name]) ? node.values[name] : null]));
+          const values = Object.fromEntries(metrics.map(([name]) => {
+            if (node.values.up !== 1) return [name, null];
+            if (name === 'waiting' || name === 'kv')
+              return [name, finite(node.values[name]) ? node.values[name] : null];
+            // Idle latency uses the baseline as a visual convention, not a
+            // measured zero-second observation. Unknown intervals stay missing.
+            if (node.activity === 'idle') return [name, 0];
+            return [name, node.activity === 'active' && finite(node.values[name]) ? node.values[name] : null];
+          }));
           entry.samples.push({time, values});
           while (entry.samples.length > 28801 || (entry.samples.length && entry.samples[0].time < time - 86400000)) entry.samples.shift();
           for (const [name] of metrics) if (finite(values[name])) entry.maxima[name] = Math.max(entry.maxima[name] || 1, values[name] * 1.2);
