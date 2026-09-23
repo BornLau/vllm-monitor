@@ -40,7 +40,7 @@ def editable(project):
 def public_model(project, version):
     node = project["nodes"][0]
     return {"id": project["id"], "name": project.get("name") or project["id"],
-            "url": node.get("api_base_url", ""), "has_api_key": bool(node.get("_api_key")),
+            "alias": project.get("alias", ""), "url": node.get("api_base_url", ""), "has_api_key": bool(node.get("_api_key")),
             "version": version, "editable": bool(editable(project))}
 
 
@@ -96,6 +96,9 @@ class ModelStore:
         name = data.get("name")
         if not isinstance(name, str) or not name.strip() or len(name.strip()) > 100:
             raise ValueError("模型名称需为 1–100 个字符")
+        alias = data.get("alias", "")
+        if not isinstance(alias, str) or len(alias.strip()) > 100 or any(ord(c) < 32 for c in alias):
+            raise ValueError("模型别名最多 100 个字符，不能包含控制字符")
         url = normalize_url(data.get("url"))
         secret = data.get("api_key", "")
         if not isinstance(secret, str) or len(secret) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in secret):
@@ -120,7 +123,7 @@ class ModelStore:
             else:
                 model_id, version = "model-" + uuid.uuid4().hex[:12], 0
             node_id = old["nodes"][0]["id"] if old and old["nodes"][0]["api_base_url"] == url else "endpoint-" + uuid.uuid4().hex[:12]
-            project = {"id": model_id, "name": name.strip(), "deployment": "standard", "nodes": [
+            project = {"id": model_id, "name": name.strip(), "alias": alias.strip() if "alias" in data else (old or {}).get("alias", ""), "deployment": "standard", "nodes": [
                 {"id": node_id, "role": "engine", "name": "服务入口", "api_base_url": url,
                  "metrics_url": url[:-3] + "/metrics", "_api_key": secret, "_metrics_key": secret}
             ]}

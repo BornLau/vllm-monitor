@@ -56,7 +56,7 @@ function render(live=false){
   const q=$('search').value.trim().toLowerCase();
   const dates=(data?.dates||[]).slice(rangeStart,rangeEnd+1);
   if(data){const totals=selectedTotals(dates);keys.forEach(k=>$(k).textContent=fmt(totals[k]));}
-  const rows=(data?.rows||[]).filter(r=>[r.model,r.project,r.node].join(' ').toLowerCase().includes(q));
+  const rows=(data?.rows||[]).filter(r=>[r.display_model,r.model,r.project,r.node].join(' ').toLowerCase().includes(q));
   const width=Math.max(280,($('rows').clientWidth||842)-42);
   const charts=[dailyUsageChart(rows,dates,'requests','每日请求处理数','次',fmt,esc,width),dailyUsageChart(rows,dates,'total_tokens','每日 Token 用量','tokens',fmt,esc,width),dailyQueueChart(rows,dates,fmt,esc,width)];
   if(live===true){

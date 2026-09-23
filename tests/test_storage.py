@@ -23,6 +23,23 @@ class StorageTests(unittest.TestCase):
     def add(self):
         return self.store.save({'name': 'GLM', 'url': 'http://glm:8080', 'api_key': 'secret-key'})
 
+    def test_alias_persists_clears_and_preserves_identity(self):
+        model = self.add()
+        node_id = self.store.snapshot()[1][0][0]['nodes'][0]['id']
+        body = {'name': model['name'], 'url': model['url'], 'version': model['version'], 'alias': ' 主力模型 '}
+        model = self.store.save(body, model['id'])
+        self.assertEqual(ModelStore(self.path).list_public()['models'][0]['alias'], '主力模型')
+        self.assertEqual(self.store.snapshot()[1][0][0]['nodes'][0]['id'], node_id)
+        body['version'] = model['version']
+        del body['alias']
+        model = self.store.save(body, model['id'])
+        self.assertEqual(model['alias'], '主力模型')
+        body.update(version=model['version'], alias='')
+        self.assertEqual(self.store.save(body, model['id'])['alias'], '')
+        for alias in (None, 123, 'x' * 101, 'a\nb'):
+            with self.assertRaises(ValueError):
+                self.store.save({'name': 'A', 'url': 'http://host', 'alias': alias})
+
     def test_persistence_key_masking_and_permissions(self):
         model = self.add()
         reopened = ModelStore(self.path)

@@ -277,7 +277,7 @@ def usage_statistics(window):
                           if any(day[key] is not None for day in daily) else None
                           for key in (*counters, "total_tokens")}
                 rows.append(dict(project=project.get("name") or project["id"], node=node.get("name") or node["id"],
-                                 model=model or "未提供 model_name", daily=daily, **totals))
+                                 display_model=project.get("alias") or model or "未提供 model_name", model=model or "未提供 model_name", daily=daily, **totals))
     totals = {key: sum(row[key] for row in rows) if rows and all(row[key] is not None for row in rows) else None
               for key in (*counters, "total_tokens")}
     partial = any(day[key] is None for row in rows for day in row["daily"] for key in counters)
@@ -340,7 +340,7 @@ def throughput_averages(window):
                     if values[direction + "_observed_seconds"] is not None and values[direction + "_active_seconds"] is None:
                         values[direction + "_active_seconds"] = 0
                 rows.append(dict(project=project.get("name") or project["id"], node=node.get("name") or node["id"],
-                                 model=model or "未提供 model_name", **values))
+                                 display_model=project.get("alias") or model or "未提供 model_name", model=model or "未提供 model_name", **values))
     return dict(window=window, end=end, step_seconds=AVERAGE_STEP, rows=rows)
 
 
@@ -440,7 +440,7 @@ def collect(projects):
                 errors[name] = safe_error(exc)
         result = []
         for project in projects:
-            item = {key: project.get(key, "") for key in ("id", "name", "deployment", "environment")}
+            item = {key: project.get(key, "") for key in ("id", "name", "alias", "deployment", "environment")}
             item["nodes"] = []
             for node in project["nodes"]:
                 identity = (project["id"], node["id"])

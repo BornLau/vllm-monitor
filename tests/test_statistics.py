@@ -36,6 +36,15 @@ class StatisticsTests(unittest.TestCase):
         self.assertFalse(data['partial'])
         self.assertEqual(data['timezone'],'Asia/Shanghai')
 
+    def test_alias_changes_display_only(self):
+        config = project()
+        config['alias'] = '主力模型'
+        with patch.object(app.time,'time',return_value=self.NOW), patch.object(app,'current_configuration',return_value=(0,[config])), patch.object(app,'request',side_effect=self.fixture):
+            data = app.usage_statistics('7d')
+        self.assertEqual(data['rows'][0]['display_model'], '主力模型')
+        self.assertEqual(data['rows'][0]['model'], 'model-a')
+        self.assertEqual(data['totals']['requests'], 21)
+
     def test_calendar_boundaries(self):
         from datetime import datetime, timezone, timedelta
         now=datetime(2026,9,22,12,tzinfo=timezone(timedelta(hours=8))).timestamp()
