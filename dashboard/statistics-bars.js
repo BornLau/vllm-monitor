@@ -35,12 +35,9 @@ function dailyUsageChart(rows, dates, key, title, unit, format, escape, chartWid
       const h=v/max*(bottom-top), y=bottom-(sum+v)/max*(bottom-top);sum+=v;
       svg+=`<rect tabindex="0" x="${x-bw/2}" y="${y}" width="${bw}" height="${h}" fill="${colors[j%colors.length]}"><title>${escape(dates[i]+' · '+(rows[j].display_model||rows[j].model)+' · '+rows[j].project+'：'+format(v)+' '+unit)}</title></rect>`;
     });
-    if(missing.length){
-      const allMissing=missing.length===values.length;
-      const y=allMissing?top:Math.max(top,bottom-sum/max*(bottom-top)-8);
-      svg+=`<rect x="${x-bw/2}" y="${y}" width="${bw}" height="${allMissing?bottom-top:6}" fill="${allMissing?'#f4f6fa':'none'}" stroke="#8998ae" stroke-dasharray="3 3"><title>${escape(dates[i]+'：'+missing.map(j=>rows[j].display_model||rows[j].model).join('、')+' 数据缺失，不按零统计；保留其他模型已知用量')}</title></rect>`;
-      if(allMissing)svg+=`<text x="${x}" y="${bottom-8}" text-anchor="middle" font-size="11" fill="#8a96a8">—</text>`;
-    }else if(sum===0)svg+=`<text x="${x}" y="${bottom-6}" text-anchor="middle" font-size="10" fill="#8a96a8">0</text>`;
+    if(missing.length===values.length){
+      svg+=`<text x="${x}" y="${bottom-8}" text-anchor="middle" font-size="11" fill="#8a96a8"><title>${escape(dates[i]+'：数据缺失，不按零统计')}</title>—</text>`;
+    }else if(!missing.length&&sum===0)svg+=`<text x="${x}" y="${bottom-6}" text-anchor="middle" font-size="10" fill="#8a96a8">0</text>`;
     if(i % Math.max(1,Math.ceil(dates.length/Math.max(1,(width-80)/90)))===0) svg+=`<text x="${x}" y="${bottom+21}" text-anchor="middle" font-size="10" fill="#78869a">${dates[i].slice(5)}</text>`;
   });
   return `<section class="chart-card daily-card"><div class="chart-title"><h3>${title}</h3><span>${unit} / 日</span></div><div class="legend">${rows.map((r,i)=>`<span title="${escape(r.project+' · '+r.node)}"><i style="background:${colors[i%colors.length]}"></i>${escape((r.display_model||r.model))}</span>`).join('')}</div><div class="daily-scroll"><svg role="img" aria-label="${title}，横轴日期，纵轴${unit}" viewBox="0 0 ${width} ${height}" style="width:100%;display:block">${svg}</svg></div></section>`;

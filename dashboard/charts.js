@@ -138,7 +138,6 @@
       panel.querySelector('.chart-line').setAttribute('d', paths.line);
       panel.querySelector('.chart-area').setAttribute('d', paths.area);
       panel.querySelector('.chart-reference').setAttribute('d', paths.reference);
-      panel.querySelector('.chart-reference-note').hidden = !paths.reference;
       panel.querySelector('.chart-empty').hidden = paths.count >= 1;
       panel.querySelector('.chart-empty').textContent = paths.count ? '正在积累采样…' : '暂无有效采样';
       panel.querySelector('.axis-max').textContent = max.toLocaleString('zh-CN',{maximumFractionDigits:1});

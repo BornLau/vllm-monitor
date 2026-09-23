@@ -83,7 +83,7 @@ test('missing model does not hide other models request and token bars after alia
   for(const [key,value] of [['requests',42],['total_tokens',900]]){
     const chart=ctx.dailyUsageChart(rows,dates,key,'统计','次',String,String);
     assert.match(chart,new RegExp('主力 · P：'+value));
-    assert.match(chart,/缺测模型 数据缺失/);
+    assert.doesNotMatch(chart,/stroke-dasharray/);
     assert.match(chart,/fill="#527be9"/);
   }
 });
