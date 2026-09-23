@@ -49,3 +49,6 @@ body,button,input,select,.toolbar input,.toolbar select,.actions select,.config-
 .chart-reference{opacity:.65}
 
 .chart-line{stroke-linecap:round}
+
+.bar-tooltip{position:fixed;z-index:1000;pointer-events:none;max-width:min(420px,calc(100vw - 16px));padding:10px 14px;border-radius:8px;background:#1e293b;color:#fff;box-shadow:0 4px 16px #0003;font-size:12px;line-height:1.7;white-space:pre-line;overflow-wrap:anywhere}
+[data-bar-tooltip]:hover,[data-bar-tooltip]:focus{filter:brightness(1.12);stroke:#334155;stroke-width:1}

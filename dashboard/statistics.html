@@ -31,12 +31,41 @@
 <details><summary style="cursor:pointer;color:var(--muted)">统计口径</summary><p style="font-size:12px;margin-top:8px">按 3 秒等间隔取样，对大于 0 的吞吐值求平均，等价于按有效采样时长加权；采集失败、缺失和过期样本排除。有效时长与覆盖率是采样估算。全程为零时平均显示 —，有效时长为 0；没有数据时两者均为 —。输入、输出的有效时段不同，不能直接相加两者平均值。采样间隔内部的空闲秒数无法精确扣除；有负载但吞吐为零的等待阶段也会按本口径排除。</p></details>
 </section>
 </main>
+<div id="bar-tooltip" class="bar-tooltip" role="tooltip" hidden></div>
 <script src="/statistics-bars.js"></script>
 <script>
 const $=id=>document.getElementById(id), keys=['requests','total_tokens','input_tokens','output_tokens'];
 const fmt=v=>v==null?'—':Number(v).toLocaleString('zh-CN',{maximumFractionDigits:0});
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let data=null, serial=0, rangeStart=0, rangeEnd=0;
+let tooltipTarget=null;
+function hideBarTooltip(){
+  if(tooltipTarget)tooltipTarget.removeAttribute('aria-describedby');
+  tooltipTarget=null;$('bar-tooltip').hidden=true;
+}
+function showBarTooltip(target,x,y){
+  if(!target){hideBarTooltip();return;}
+  if(tooltipTarget!==target)hideBarTooltip();
+  tooltipTarget=target;
+  const tooltip=$('bar-tooltip');
+  tooltip.textContent=target.dataset.barTooltip;
+  tooltip.hidden=false;target.setAttribute('aria-describedby','bar-tooltip');
+  const box=tooltip.getBoundingClientRect();
+  tooltip.style.left=Math.max(8,Math.min(x+12,window.innerWidth-box.width-8))+'px';
+  tooltip.style.top=Math.max(8,y+12+box.height>window.innerHeight-8?y-box.height-12:y+12)+'px';
+}
+$('rows').onpointerover=event=>showBarTooltip(event.target.closest('[data-bar-tooltip]'),event.clientX,event.clientY);
+$('rows').onpointerout=$('rows').onpointerleave=hideBarTooltip;
+$('rows').onfocusin=event=>{
+  const target=event.target.closest('[data-bar-tooltip]');
+  if(!target)return;
+  const box=target.getBoundingClientRect();showBarTooltip(target,box.x+box.width/2,box.y);
+};
+$('rows').onfocusout=hideBarTooltip;
+if(typeof window!=='undefined'){
+  window.addEventListener('scroll',hideBarTooltip,true);
+  window.addEventListener('blur',hideBarTooltip);
+}
 function dateSlider(key){
   const dates=data?.dates||[], count=Math.max(1,dates.length);
   const values=dates.map(date=>(data?.rows||[]).reduce((sum,row)=>sum+(row.daily?.find(day=>day.date===date)?.[key]||0),0));
@@ -56,6 +85,7 @@ function selectedTotals(dates){
   }));
 }
 function render(live=false){
+  hideBarTooltip();
   const q=$('search').value.trim().toLowerCase();
   const dates=(data?.dates||[]).slice(rangeStart,rangeEnd+1);
   if(data){const totals=selectedTotals(dates);keys.forEach(k=>$(k).textContent=fmt(totals[k]));}
@@ -74,7 +104,7 @@ function render(live=false){
   $('rows').innerHTML=rows.length ? charts.map((chart,i)=>withDateSlider(chart,['requests','total_tokens','waiting'][i])).join('')
     : `<div class="chart-empty">${q?'没有匹配的模型':data?'当前没有可统计的服务入口':'暂无统计数据'}</div>`;
 }
-async function load(){const id=++serial;$('refresh').disabled=true;$('error').hidden=true;data=null;keys.forEach(k=>$(k).textContent='—');$('rows').innerHTML='<div class="chart-empty">正在加载统计…</div>';$('status').textContent='正在读取 Prometheus 历史…';try{const response=await fetch('/api/statistics?window='+encodeURIComponent($('window').value));if(!response.ok)throw new Error('统计加载失败，请检查 Prometheus 连接后重试。');const next=await response.json();if(id!==serial)return;data=next;rangeStart=0;rangeEnd=Math.max(0,(data.dates||[]).length-1);keys.forEach(k=>$(k).textContent=fmt(data.totals[k]));render();$('status').textContent='统计截至：'+new Date(data.end*1000).toLocaleString('zh-CN')+' · '+data.rows.length+' 个模型 / 入口记录';if(data.partial || data.rows.some(r=>keys.some(k=>r[k]==null))){$('error').textContent='部分模型或日期数据缺失：总计与柱状图仅汇总已知用量，不代表完整总量。';$('error').hidden=false;}}catch(e){if(id!==serial)return;$('error').textContent=e.message;$('error').hidden=false;$('status').textContent='统计不可用';render();}finally{if(id===serial)$('refresh').disabled=false;}}
+async function load(){hideBarTooltip();const id=++serial;$('refresh').disabled=true;$('error').hidden=true;data=null;keys.forEach(k=>$(k).textContent='—');$('rows').innerHTML='<div class="chart-empty">正在加载统计…</div>';$('status').textContent='正在读取 Prometheus 历史…';try{const response=await fetch('/api/statistics?window='+encodeURIComponent($('window').value));if(!response.ok)throw new Error('统计加载失败，请检查 Prometheus 连接后重试。');const next=await response.json();if(id!==serial)return;data=next;rangeStart=0;rangeEnd=Math.max(0,(data.dates||[]).length-1);keys.forEach(k=>$(k).textContent=fmt(data.totals[k]));render();$('status').textContent='统计截至：'+new Date(data.end*1000).toLocaleString('zh-CN')+' · '+data.rows.length+' 个模型 / 入口记录';if(data.partial || data.rows.some(r=>keys.some(k=>r[k]==null))){$('error').textContent='部分模型或日期数据缺失：总计与柱状图仅汇总已知用量，不代表完整总量。';$('error').hidden=false;}}catch(e){if(id!==serial)return;$('error').textContent=e.message;$('error').hidden=false;$('status').textContent='统计不可用';render();}finally{if(id===serial)$('refresh').disabled=false;}}
 let brushDrag=null;
 $('rows').onpointerdown=event=>{
   const target=event.target.closest('[data-brush]');if(!data||!target||event.button!==0)return;
@@ -83,12 +113,14 @@ $('rows').onpointerdown=event=>{
   target.setPointerCapture(event.pointerId);target.focus({preventScroll:true});event.preventDefault();
 };
 $('rows').onpointermove=event=>{
-  if(!brushDrag||event.pointerId!==brushDrag.pointer)return;
+  if(!brushDrag){showBarTooltip(event.target.closest('[data-bar-tooltip]'),event.clientX,event.clientY);return;}
+  if(event.pointerId!==brushDrag.pointer)return;
   const d=brushDrag,delta=Math.round((event.clientX-d.x)/d.width*data.dates.length);
   [rangeStart,rangeEnd]=brushRange(d.start,d.end,delta,d.part,data.dates.length);render(true);
 };
 $('rows').onpointerup=$('rows').onpointercancel=$('rows').onlostpointercapture=()=>{brushDrag=null;};
 $('rows').onkeydown=event=>{
+  if(event.key==='Escape'){hideBarTooltip();return;}
   const target=event.target.closest('[data-brush]');if(!data||!target||!['ArrowLeft','ArrowRight'].includes(event.key))return;
   event.preventDefault();[rangeStart,rangeEnd]=brushRange(rangeStart,rangeEnd,event.key==='ArrowRight'?1:-1,target.dataset.brush,data.dates.length);render(true);
 };

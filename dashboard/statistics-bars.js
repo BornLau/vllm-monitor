@@ -33,7 +33,10 @@ function dailyUsageChart(rows, dates, key, title, unit, format, escape, chartWid
     values.forEach((v,j)=>{
       if(v==null)return;
       const h=v/max*(bottom-top), y=bottom-(sum+v)/max*(bottom-top);sum+=v;
-      svg+=`<rect tabindex="0" x="${x-bw/2}" y="${y}" width="${bw}" height="${h}" fill="${colors[j%colors.length]}"><title>${escape(dates[i]+' · '+(rows[j].display_model||rows[j].model)+' · '+rows[j].project+'：'+format(v)+' '+unit)}</title></rect>`;
+      const row=rows[j], model=row.display_model||row.model;
+      const tooltip=dates[i]+' · '+model+' · '+row.project+'：'+format(v)+' '+unit
+        +(row.display_model && row.display_model!==row.model ? '\n模型：'+row.model : '')+'\n节点：'+row.node;
+      svg+=`<rect tabindex="0" data-bar-tooltip="${escape(tooltip)}" aria-label="${escape(tooltip)}" x="${x-bw/2}" y="${y}" width="${bw}" height="${h}" fill="${colors[j%colors.length]}"/>`;
     });
     if(missing.length===values.length){
       svg+=`<text x="${x}" y="${bottom-8}" text-anchor="middle" font-size="11" fill="#8a96a8"><title>${escape(dates[i]+'：数据缺失，不按零统计')}</title>—</text>`;
