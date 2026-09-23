@@ -9,10 +9,10 @@
 <link rel="stylesheet" href="/theme.css">
 </head>
 <body>
-<div class="app-header"><div class="app-brand"><span class="brand-mark">v</span>vLLM <small>MONITOR</small></div><nav class="app-nav" aria-label="页面导航"><a href="/" >实时监控</a><a href="/statistics" class="active" aria-current="page">数据统计</a></nav><div class="app-tools"><span class="pill">用量分析</span></div></div>
+<div class="app-header"><div class="app-brand"><span class="brand-mark">v</span>vLLM <small>MONITOR</small></div><nav class="app-nav" aria-label="页面导航"><a href="/" >实时监控</a><a href="/stats" class="active" aria-current="page">数据统计</a></nav><div class="app-tools"><span class="pill">用量分析</span></div></div>
 <main>
 
-<header><div><h1>用量统计</h1><p>请求和 Token 用量概览</p></div><div class="actions"><div class="range-tabs" aria-label="累计用量范围"><button type="button" data-range="24h" aria-pressed="false">近 24 小时</button><button type="button" data-range="7d" aria-pressed="false">近 7 天</button><button type="button" data-range="30d" aria-pressed="true">近 30 天</button></div><label hidden>统计范围 <select id="window"><option value="24h">近 24 小时</option><option value="7d">近 7 天</option><option value="30d" selected>近 30 天</option></select></label><button id="refresh">刷新统计</button></div></header>
+<header><div><h1>用量统计</h1><p>按日汇总 · 北京时间（UTC+8）</p></div><div class="actions"><div class="range-tabs" aria-label="累计用量范围"><button type="button" data-range="24h" aria-pressed="false">今天</button><button type="button" data-range="7d" aria-pressed="false">近 7 天</button><button type="button" data-range="30d" aria-pressed="true">近 30 天</button></div><label hidden>统计范围 <select id="window"><option value="24h">今天</option><option value="7d">近 7 天</option><option value="30d" selected>近 30 天</option></select></label><button id="refresh">刷新统计</button></div></header>
 <div id="error" class="notice" role="alert" hidden></div>
 <section class="cards" aria-label="总计">
 <div class="card"><span>成功请求</span><strong id="requests">—</strong><small>requests</small></div>
@@ -20,9 +20,9 @@
 <div class="card"><span>输入 Token</span><strong id="input_tokens">—</strong><small>prompt tokens</small></div>
 <div class="card"><span>输出 Token</span><strong id="output_tokens">—</strong><small>generation tokens</small></div>
 </section>
-<div class="table-head"><h2>分模型用量</h2><input id="search" type="search" aria-label="搜索模型或服务" placeholder="搜索模型或服务…"></div>
+<div class="table-head"><h2>每日用量</h2><input id="search" type="search" aria-label="搜索模型或服务" placeholder="搜索模型或服务…"></div>
 <div id="rows" class="chart-grid" aria-live="polite">正在加载统计…</div>
-<footer><div id="status" role="status">正在读取 Prometheus 历史…</div><details><summary>累计用量统计口径</summary><p>统计当前配置的服务入口，按 model_name 分列；不同入口分别计数，总计不随搜索变化。同一请求经过多个被监控入口或 PD 节点时可能重复计数。</p><p>基于所选范围内计数器增量估算，处理已观测到的重启归零；默认最多保留 30 天，并非服务上线以来的永久总账。接入前用量、采集缺口无法完整恢复；小数四舍五入展示。缺失指标显示 —，不计为零；总计任一对应项缺失时也显示 —。</p></details></footer>
+<footer><div id="status" role="status">正在读取 Prometheus 历史…</div><details><summary>累计用量统计口径</summary><p>统计当前配置的服务入口，按 model_name 分列；不同入口分别计数，总计不随搜索变化。同一请求经过多个被监控入口或 PD 节点时可能重复计数。</p><p>按北京时间自然日计算计数器增量；今天统计到当前时刻。总计为每日已知数据之和；按所选日期范围估算，处理已观测到的重启归零；默认最多保留 30 天，并非服务上线以来的永久总账。接入前用量、采集缺口无法完整恢复；小数四舍五入展示。缺失指标显示 —，不计为零；总计任一对应项缺失时也显示 —。</p></details></footer>
 <section aria-label="平均吞吐" class="average-section">
 <div class="table-head"><div><h1>平均吞吐</h1><p>仅纳入吞吐 &gt; 0 的采样段 · 输入与输出分别统计</p></div><div class="actions"><label>平均值范围 <select id="average-window"><option value="12h">近 12 小时</option><option value="24h">近 24 小时</option></select></label><button id="average-refresh">刷新平均值</button></div></div>
 <div id="average-error" class="notice" role="alert" hidden></div>
@@ -36,16 +36,60 @@
 const $=id=>document.getElementById(id), keys=['requests','total_tokens','input_tokens','output_tokens'];
 const fmt=v=>v==null?'—':Number(v).toLocaleString('zh-CN',{maximumFractionDigits:0});
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let data=null, serial=0;
-function render(){
+let data=null, serial=0, rangeStart=0, rangeEnd=0;
+function dateSlider(key){
+  const dates=data?.dates||[], count=Math.max(1,dates.length);
+  const values=dates.map(date=>(data?.rows||[]).reduce((sum,row)=>sum+(row.daily?.find(day=>day.date===date)?.[key]||0),0));
+  const max=Math.max(1,...values);
+  const bars=values.map((v,i)=>`<rect x="${i/count*1000}" y="${38-v/max*32}" width="${Math.max(1,1000/count-3)}" height="${v/max*32}" rx="1"/>`).join('');
+  return `<div class="date-slider"><div class="date-brush" style="--range-left:${rangeStart/count*100}%;--range-right:${(rangeEnd+1)/count*100}%"><svg viewBox="0 0 1000 40" preserveAspectRatio="none" aria-hidden="true">${bars}</svg><div class="brush-window" data-brush="pan" tabindex="0" role="group" aria-label="日期选区，左右方向键平移"><span class="brush-grip" data-brush="start" tabindex="0" role="slider" aria-label="开始日期" aria-valuemin="0" aria-valuemax="${dates.length-1}" aria-valuenow="${rangeStart}" aria-valuetext="${dates[rangeStart]}"></span><span class="brush-grip" data-brush="end" tabindex="0" role="slider" aria-label="结束日期" aria-valuemin="0" aria-valuemax="${dates.length-1}" aria-valuenow="${rangeEnd}" aria-valuetext="${dates[rangeEnd]}"></span></div></div><div class="date-bounds"><span>${esc(dates[0]||'—')}</span><span>拖动两端缩放 · 拖动选区平移</span><span>${esc(dates[dates.length-1]||'—')}</span></div></div>`;
+}
+function withDateSlider(chart,key){return chart.replace('</section>',dateSlider(key)+'</section>');}
+function selectedTotals(dates){
+  if(rangeStart===0 && rangeEnd===(data.dates||[]).length-1)return data.totals;
+  return Object.fromEntries(keys.map(key=>{
+    const perRow=data.rows.map(row=>dates.map(date=>row.daily?.find(day=>day.date===date)?.[key]).filter(v=>v!=null&&Number.isFinite(v)));
+    return [key,perRow.length&&perRow.every(values=>values.length)?perRow.flat().reduce((a,b)=>a+b,0):null];
+  }));
+}
+function render(live=false){
   const q=$('search').value.trim().toLowerCase();
+  const dates=(data?.dates||[]).slice(rangeStart,rangeEnd+1);
+  if(data){const totals=selectedTotals(dates);keys.forEach(k=>$(k).textContent=fmt(totals[k]));}
   const rows=(data?.rows||[]).filter(r=>[r.model,r.project,r.node].join(' ').toLowerCase().includes(q));
-  $('rows').innerHTML=rows.length ?
-    usageBars(rows,'requests','请求量排行','次','#527be9',fmt,esc)+
-    usageTokenBars(rows,fmt,esc)
+  const width=Math.max(280,($('rows').clientWidth||842)-42);
+  const charts=[dailyUsageChart(rows,dates,'requests','每日请求处理数','次',fmt,esc,width),dailyUsageChart(rows,dates,'total_tokens','每日 Token 用量','tokens',fmt,esc,width),dailyQueueChart(rows,dates,fmt,esc,width)];
+  if(live===true){
+    document.querySelectorAll('.daily-scroll').forEach((plot,i)=>plot.innerHTML=charts[i].match(/<div class="daily-scroll">([\s\S]*?)<\/div>/)[1]);
+    document.querySelectorAll('.date-brush').forEach(brush=>{
+      brush.style.setProperty('--range-left',`${rangeStart/data.dates.length*100}%`);
+      brush.style.setProperty('--range-right',`${(rangeEnd+1)/data.dates.length*100}%`);
+      ['start','end'].forEach(part=>{const handle=brush.querySelector(`[data-brush="${part}"]`),value=part==='start'?rangeStart:rangeEnd;handle.setAttribute('aria-valuenow',value);handle.setAttribute('aria-valuetext',data.dates[value]);});
+    });
+    return;
+  }
+  $('rows').innerHTML=rows.length ? charts.map((chart,i)=>withDateSlider(chart,['requests','total_tokens','waiting'][i])).join('')
     : `<div class="chart-empty">${q?'没有匹配的模型':data?'当前没有可统计的服务入口':'暂无统计数据'}</div>`;
 }
-async function load(){const id=++serial;$('refresh').disabled=true;$('error').hidden=true;data=null;keys.forEach(k=>$(k).textContent='—');$('rows').innerHTML='<div class="chart-empty">正在加载统计…</div>';$('status').textContent='正在读取 Prometheus 历史…';try{const response=await fetch('/api/statistics?window='+encodeURIComponent($('window').value));if(!response.ok)throw new Error('统计加载失败，请检查 Prometheus 连接后重试。');const next=await response.json();if(id!==serial)return;data=next;keys.forEach(k=>$(k).textContent=fmt(data.totals[k]));render();$('status').textContent='统计截至：'+new Date(data.end*1000).toLocaleString('zh-CN')+' · '+data.rows.length+' 个模型 / 入口记录';if(data.rows.some(r=>keys.some(k=>r[k]==null))){$('error').textContent='部分指标缺失或样本不足，对应总计暂不可用。';$('error').hidden=false;}}catch(e){if(id!==serial)return;$('error').textContent=e.message;$('error').hidden=false;$('status').textContent='统计不可用';render();}finally{if(id===serial)$('refresh').disabled=false;}}
+async function load(){const id=++serial;$('refresh').disabled=true;$('error').hidden=true;data=null;keys.forEach(k=>$(k).textContent='—');$('rows').innerHTML='<div class="chart-empty">正在加载统计…</div>';$('status').textContent='正在读取 Prometheus 历史…';try{const response=await fetch('/api/statistics?window='+encodeURIComponent($('window').value));if(!response.ok)throw new Error('统计加载失败，请检查 Prometheus 连接后重试。');const next=await response.json();if(id!==serial)return;data=next;rangeStart=0;rangeEnd=Math.max(0,(data.dates||[]).length-1);keys.forEach(k=>$(k).textContent=fmt(data.totals[k]));render();$('status').textContent='统计截至：'+new Date(data.end*1000).toLocaleString('zh-CN')+' · '+data.rows.length+' 个模型 / 入口记录';if(data.partial || data.rows.some(r=>keys.some(k=>r[k]==null))){$('error').textContent='部分日期数据缺失：总计仅汇总已知数据，缺失日期用虚线标记。';$('error').hidden=false;}}catch(e){if(id!==serial)return;$('error').textContent=e.message;$('error').hidden=false;$('status').textContent='统计不可用';render();}finally{if(id===serial)$('refresh').disabled=false;}}
+let brushDrag=null;
+$('rows').onpointerdown=event=>{
+  const target=event.target.closest('[data-brush]');if(!data||!target||event.button!==0)return;
+  const track=target.closest('.date-brush');
+  brushDrag={pointer:event.pointerId,x:event.clientX,width:track.getBoundingClientRect().width,start:rangeStart,end:rangeEnd,part:target.dataset.brush};
+  target.setPointerCapture(event.pointerId);target.focus({preventScroll:true});event.preventDefault();
+};
+$('rows').onpointermove=event=>{
+  if(!brushDrag||event.pointerId!==brushDrag.pointer)return;
+  const d=brushDrag,delta=Math.round((event.clientX-d.x)/d.width*data.dates.length);
+  [rangeStart,rangeEnd]=brushRange(d.start,d.end,delta,d.part,data.dates.length);render(true);
+};
+$('rows').onpointerup=$('rows').onpointercancel=$('rows').onlostpointercapture=()=>{brushDrag=null;};
+$('rows').onkeydown=event=>{
+  const target=event.target.closest('[data-brush]');if(!data||!target||!['ArrowLeft','ArrowRight'].includes(event.key))return;
+  event.preventDefault();[rangeStart,rangeEnd]=brushRange(rangeStart,rangeEnd,event.key==='ArrowRight'?1:-1,target.dataset.brush,data.dates.length);render(true);
+};
+if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{if(data)render(true);}).observe($('rows'));
 function syncTabs(){document.querySelectorAll('[data-range]').forEach(button=>button.setAttribute('aria-pressed',String(button.dataset.range===$('window').value)));}
 document.querySelectorAll('[data-range]').forEach(button=>button.onclick=()=>{$('window').value=button.dataset.range;syncTabs();load();});
 $('refresh').onclick=load;$('window').onchange=()=>{syncTabs();load();};$('search').oninput=render;load();

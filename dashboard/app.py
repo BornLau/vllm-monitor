@@ -1,5 +1,6 @@
 """Multi-project vLLM monitor; standard library only."""
 import json
+from datetime import datetime, timedelta, timezone
 import math
 import os
 import re
@@ -204,31 +205,59 @@ def query(promql):
 STAT_WINDOWS = {"24h": "1d", "7d": "7d", "30d": "30d"}
 
 
+def daily_periods(window, now):
+    """Calendar days in Asia/Shanghai, including today's partial day."""
+    days = {"24h": 1, "7d": 7, "30d": 30}[window]
+    local = datetime.fromtimestamp(now, timezone(timedelta(hours=8)))
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return [(int((midnight - timedelta(days=i)).timestamp()),
+             (midnight - timedelta(days=i)).strftime("%Y-%m-%d")) for i in reversed(range(days))]
+
+
 def usage_statistics(window):
-    """Counter increases over retained history, isolated by endpoint and model."""
-    duration = STAT_WINDOWS[window]
     projects = current_configuration()[1]
     end = int(time.time())
+    periods = daily_periods(window, end)
     counters = {"requests": "request_success_total", "input_tokens": "prompt_tokens_total",
                 "output_tokens": "generation_tokens_total"}
 
     def read(metric):
-        expr = f"sum by ({GROUP},model_name) (increase(vllm:{metric}{SELECTOR}[{duration}]))"
-        params = urllib.parse.urlencode({"query": expr, "time": end})
-        payload = json.loads(request(f"{PROMETHEUS}/api/v1/query?" + params))
-        if payload.get("status") != "success":
-            raise ValueError("统计查询失败")
-        return payload.get("data", {}).get("result", [])
+        def fetch(path, params):
+            payload = json.loads(request(f"{PROMETHEUS}/api/v1/{path}?" + urllib.parse.urlencode(params)))
+            if payload.get("status") != "success":
+                raise ValueError("统计查询失败")
+            return payload.get("data", {}).get("result", [])
+        def expression(duration):
+            function = "avg_over_time" if metric == "num_requests_waiting" else "increase"
+            return f"sum by ({GROUP},model_name) ({function}(vllm:{metric}{SELECTOR}[{duration}]))"
+        result = []
+        if len(periods) > 1:
+            expr = expression("1d")
+            result = fetch("query_range", dict(query=expr, start=periods[0][0]+86400,
+                                               end=periods[-1][0], step=86400))
+        elapsed = end - periods[-1][0]
+        if elapsed > 0:
+            expr = expression(f"{elapsed}s")
+            for item in fetch("query", dict(query=expr, time=end)):
+                result.append(dict(metric=item["metric"], values=[item["value"]]))
+        return result
 
+    # Completed windows end at the next midnight; today's window ends now.
+    date_for_time = {start+86400: date for start, date in periods[:-1]}
+    date_for_time[end] = periods[-1][1]
     series = {}
     with ThreadPoolExecutor(max_workers=3) as pool:
-        tasks = {name: pool.submit(read, metric) for name, metric in counters.items()}
+        tasks = {name: pool.submit(read, metric) for name, metric in dict(counters, waiting="num_requests_waiting").items()}
         for name, task in tasks.items():
             for result in task.result():
                 labels = result["metric"]
                 identity = (labels.get("monitor_project"), labels.get("monitor_node"), labels.get("model_name", ""))
-                value = float(result["value"][1])
-                series.setdefault(identity, {})[name] = max(0, value) if math.isfinite(value) else None
+                for timestamp, raw in result.get("values", []):
+                    date = date_for_time.get(int(float(timestamp)))
+                    if date is None:
+                        continue
+                    value = float(raw)
+                    series.setdefault(identity, {}).setdefault(date, {})[name] = max(0, value) if math.isfinite(value) else None
 
     def values(raw):
         result = {key: raw.get(key) for key in counters}
@@ -243,11 +272,17 @@ def usage_statistics(window):
                 continue
             matches = [(key[2], raw) for key, raw in series.items() if key[:2] == (project["id"], node["id"])]
             for model, raw in matches or [("", {})]:
+                daily = [dict(date=date, waiting=raw.get(date, {}).get("waiting"), **values(raw.get(date, {}))) for _, date in periods]
+                totals = {key: sum(day[key] for day in daily if day[key] is not None)
+                          if any(day[key] is not None for day in daily) else None
+                          for key in (*counters, "total_tokens")}
                 rows.append(dict(project=project.get("name") or project["id"], node=node.get("name") or node["id"],
-                                 model=model or "未提供 model_name", **values(raw)))
+                                 model=model or "未提供 model_name", daily=daily, **totals))
     totals = {key: sum(row[key] for row in rows) if rows and all(row[key] is not None for row in rows) else None
               for key in (*counters, "total_tokens")}
-    return dict(window=window, end=end, rows=rows, totals=totals)
+    partial = any(day[key] is None for row in rows for day in row["daily"] for key in counters)
+    return dict(window=window, end=end, timezone="Asia/Shanghai", dates=[date for _, date in periods],
+                partial=partial, rows=rows, totals=totals)
 
 
 AVERAGE_WINDOWS = ("12h", "24h")
@@ -544,7 +579,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.json_response(200, dict(STORE.list_public(), token=CONFIG_TOKEN))
         if path == "/":
             return self.send(200, "text/html; charset=utf-8", INDEX)
-        if path == "/statistics":
+        if path in ("/stats", "/statistics"):
             return self.send(200, "text/html; charset=utf-8", Path(__file__).with_name("statistics.html").read_bytes())
         if path == "/api/averages":
             window = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("window", ["12h"])[0]

@@ -248,7 +248,7 @@ class HTTPTests(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
-            for path in ("/", "/charts.js"):
+            for path in ("/", "/charts.js", "/stats", "/statistics"):
                 with urllib.request.urlopen(f"http://127.0.0.1:{server.server_port}{path}") as response:
                     self.assertEqual(response.status, 200)
                     self.assertTrue(response.read())

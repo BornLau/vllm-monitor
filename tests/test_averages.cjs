@@ -9,9 +9,9 @@ function page(fetch) {
 test('renders 60 tok/s, active duration and coverage without treating missing as zero', async () => {
   const row = {model:'<model>',project:'service',node:'engine',output_average:60,output_active_seconds:10800,output_observed_seconds:43200,input_average:null,input_active_seconds:null,input_observed_seconds:null};
   const get = page(async()=>({ok:true,json:async()=>({end:1,rows:[row]})})); await tick();
-  assert.match(get('average-rows').innerHTML, /bar-value">60<\/div>/);
-  assert.match(get('average-rows').innerHTML, /有效时长 3 小时/);
-  assert.match(get('average-rows').innerHTML, /数据覆盖 100%/);
+  assert.match(get('average-rows').innerHTML, /<td>60<\/td>/);
+  assert.match(get('average-rows').innerHTML, /3 小时/);
+  assert.match(get('average-rows').innerHTML, /100%/);
   assert.match(get('average-rows').innerHTML, /&lt;model&gt;/);
   assert.equal(get('average-error').hidden,false);
 });

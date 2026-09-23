@@ -6,45 +6,56 @@ from test_app import app, project
 
 
 class StatisticsTests(unittest.TestCase):
-    def test_model_labels_totals_and_counter_queries(self):
-        def request(url):
-            params = parse_qs(urlsplit(url).query)
-            expr = params['query'][0]
-            self.assertIn('sum by (monitor_project,monitor_node,model_name) (increase(', expr)
-            self.assertIn('[7d]', expr)
-            self.assertIn('time', params)
-            value = 3 if 'request_success_total' in expr else 10 if 'prompt_tokens_total' in expr else 20
-            result = [{'metric': {'monitor_project': 'one', 'monitor_node': 'engine', 'model_name': model},
-                       'value': [1, str(value)]} for model in ('model-a', 'model-b')]
-            result.append({'metric': {'monitor_project': 'removed', 'monitor_node': 'engine'}, 'value': [1, '999']})
-            return json.dumps({'status': 'success', 'data': {'result': result}}).encode()
-        with patch.object(app, 'current_configuration', return_value=(0, [project()])), patch.object(app, 'request', side_effect=request):
-            data = app.usage_statistics('7d')
-        self.assertEqual([r['model'] for r in data['rows']], ['model-a', 'model-b'])
-        self.assertEqual(data['totals'], {'requests': 6, 'input_tokens': 20, 'output_tokens': 40, 'total_tokens': 60})
+    NOW = 1789984800
 
-    def test_missing_metrics_do_not_become_zero(self):
-        def request(url):
-            result = [] if 'generation_tokens_total' in url else [
-                {'metric': {'monitor_project': 'one', 'monitor_node': 'engine'}, 'value': [1, '0']}]
-            return json.dumps({'status': 'success', 'data': {'result': result}}).encode()
-        with patch.object(app, 'current_configuration', return_value=(0, [project()])), patch.object(app, 'request', side_effect=request):
-            data = app.usage_statistics('30d')
-        self.assertEqual(data['totals']['requests'], 0)
-        self.assertIsNone(data['totals']['output_tokens'])
-        self.assertIsNone(data['totals']['total_tokens'])
-        self.assertEqual(data['rows'][0]['model'], '未提供 model_name')
+    def fixture(self, url):
+        params = parse_qs(urlsplit(url).query)
+        expr = params['query'][0]
+        value = 2 if 'num_requests_waiting' in expr else 3 if 'request_success_total' in expr else 10 if 'prompt_tokens_total' in expr else 20
+        if 'num_requests_waiting' in expr:
+            self.assertIn('avg_over_time(', expr)
+        else:
+            self.assertIn('increase(', expr)
+        labels = {'monitor_project':'one','monitor_node':'engine','model_name':'model-a'}
+        if 'query_range?' in url:
+            self.assertIn('[1d]', expr)
+            self.assertEqual(params['step'], ['86400'])
+            points = [[t,str(value)] for t in range(int(params['start'][0]),int(params['end'][0])+1,86400)]
+            result = [{'metric':labels,'values':points}]
+        else:
+            result = [{'metric':labels,'value':[int(params['time'][0]),str(value)]}]
+        return json.dumps({'status':'success','data':{'result':result}}).encode()
 
-    def test_query_failure_not_zero_usage(self):
-        with patch.object(app, 'request', return_value=b'{"status":"error"}'), patch.object(app, 'current_configuration', return_value=(0, [project()])):
+    def test_daily_buckets_totals_and_queue(self):
+        with patch.object(app.time,'time',return_value=self.NOW), patch.object(app,'current_configuration',return_value=(0,[project()])), patch.object(app,'request',side_effect=self.fixture):
+            data=app.usage_statistics('7d')
+        self.assertEqual(len(data['dates']),7)
+        self.assertEqual(data['totals']['requests'],21)
+        self.assertEqual(data['totals']['total_tokens'],210)
+        self.assertTrue(all(day['waiting']==2 for day in data['rows'][0]['daily']))
+        self.assertFalse(data['partial'])
+        self.assertEqual(data['timezone'],'Asia/Shanghai')
+
+    def test_calendar_boundaries(self):
+        from datetime import datetime, timezone, timedelta
+        now=datetime(2026,9,22,12,tzinfo=timezone(timedelta(hours=8))).timestamp()
+        periods=app.daily_periods('7d',now)
+        self.assertEqual(periods[0][1],'2026-09-16')
+        self.assertEqual(periods[-1][1],'2026-09-22')
+        self.assertEqual(now-periods[-1][0],43200)
+        self.assertEqual(len(app.daily_periods('24h',now)),1)
+
+    def test_missing_days_remain_unknown(self):
+        with patch.object(app.time,'time',return_value=self.NOW), patch.object(app,'current_configuration',return_value=(0,[project()])), patch.object(app,'request',return_value=b'{"status":"success","data":{"result":[]}}'):
+            data=app.usage_statistics('7d')
+        self.assertTrue(data['partial'])
+        self.assertIsNone(data['totals']['requests'])
+        self.assertTrue(all(day['waiting'] is None for day in data['rows'][0]['daily']))
+
+    def test_query_failure_is_not_zero_usage(self):
+        with patch.object(app,'request',return_value=b'{"status":"error"}'), patch.object(app,'current_configuration',return_value=(0,[project()])):
             with self.assertRaises(ValueError):
-                app.usage_statistics('24h')
-
-    def test_no_series_preserves_configured_endpoint(self):
-        with patch.object(app, 'request', return_value=b'{"status":"success","data":{"result":[]}}'), patch.object(app, 'current_configuration', return_value=(0, [project()])):
-            data = app.usage_statistics('24h')
-        self.assertEqual(len(data['rows']), 1)
-        self.assertTrue(all(v is None for v in data['totals'].values()))
+                app.usage_statistics('7d')
 
 
 class AverageTests(unittest.TestCase):

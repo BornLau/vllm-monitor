@@ -17,11 +17,7 @@
       if (id !== serial) return;
       const seconds = window === '12h' ? 43200 : 86400;
       const coverage = v => v == null ? '—' : number(Math.min(100, v / seconds * 100)) + '%';
-      const detail = direction => row => `有效时长 ${duration(row[direction + '_active_seconds'])} · 数据覆盖 ${coverage(row[direction + '_observed_seconds'])}`;
-      el('average-rows').innerHTML = data.rows.length ?
-        usageBars(data.rows, 'output_average', '输出平均', 'tok/s', '#527be9', number, escape, detail('output')) +
-        usageBars(data.rows, 'input_average', '输入平均', 'tok/s', '#16a6a1', number, escape, detail('input'))
-        : '<div class="chart-empty">当前没有可统计的服务入口</div>';
+      el('average-rows').innerHTML = data.rows.length ? `<div class="average-table-wrap"><table class="average-table"><thead><tr><th>模型</th><th>输入平均 tok/s</th><th>输出平均 tok/s</th><th>有效时长（输入 / 输出）</th></tr></thead><tbody>${data.rows.map(row=>`<tr><td title="${escape(row.project+' · '+row.node)}">${escape(row.model)}</td><td>${number(row.input_average)}</td><td>${number(row.output_average)}</td><td>${duration(row.input_active_seconds)} / ${duration(row.output_active_seconds)}<small>数据覆盖 ${coverage(row.input_observed_seconds)} / ${coverage(row.output_observed_seconds)}</small></td></tr>`).join('')}</tbody></table></div>` : '<div class="chart-empty">当前没有可统计的服务入口</div>';
       el('average-status').textContent = '统计截至：' + new Date(data.end * 1000).toLocaleString('zh-CN') + ' · 不含零吞吐采样段';
       if (data.rows.some(row => ['input', 'output'].some(d => row[d + '_observed_seconds'] == null || row[d + '_observed_seconds'] < seconds * .9))) {
         el('average-error').textContent = '部分模型数据覆盖不足 90% 或缺失，平均值仅代表已有有效采样。';
