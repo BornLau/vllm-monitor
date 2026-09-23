@@ -37,7 +37,7 @@ function dailyUsageChart(rows, dates, key, title, unit, format, escape, chartWid
       });
       if(sum===0)svg+=`<text x="${x}" y="${bottom-6}" text-anchor="middle" font-size="10" fill="#8a96a8">0</text>`;
     }
-    if(i % Math.max(1,Math.ceil(dates.length/(width/65)))===0 || i===dates.length-1) svg+=`<text x="${x}" y="${bottom+21}" text-anchor="middle" font-size="10" fill="#78869a">${dates[i].slice(5)}</text>`;
+    if(i % Math.max(1,Math.ceil(dates.length/Math.max(1,(width-80)/90)))===0) svg+=`<text x="${x}" y="${bottom+21}" text-anchor="middle" font-size="10" fill="#78869a">${dates[i].slice(5)}</text>`;
   });
   return `<section class="chart-card daily-card"><div class="chart-title"><h3>${title}</h3><span>${unit} / 日</span></div><div class="legend">${rows.map((r,i)=>`<span title="${escape(r.project+' · '+r.node)}"><i style="background:${colors[i%colors.length]}"></i>${escape((r.display_model||r.model))}</span>`).join('')}</div><div class="daily-scroll"><svg role="img" aria-label="${title}，横轴日期，纵轴${unit}" viewBox="0 0 ${width} ${height}" style="width:100%;display:block">${svg}</svg></div></section>`;
 }
@@ -51,7 +51,7 @@ function dailyQueueChart(rows, dates, format, escape, chartWidth = 800) {
   let svg='';
   for(let i=0;i<=4;i++){const y=bottom-(bottom-top)*i/4;svg+=`<line x1="${left}" y1="${y}" x2="${width-16}" y2="${y}" stroke="#e9eef5"/><text x="${left-9}" y="${y+4}" text-anchor="end" fill="#8a96a8" font-size="10">${Number((max*i/4).toFixed(2))}</text>`;}
   const x=i=>dates.length===1?(width+left)/2:left+step*i;
-  dates.forEach((date,i)=>{if(i % Math.max(1,Math.ceil(dates.length/(width/65)))===0 || i===dates.length-1)svg+=`<text x="${x(i)}" y="${bottom+21}" text-anchor="middle" font-size="10" fill="#78869a">${date.slice(5)}</text>`;});
+  dates.forEach((date,i)=>{if(i % Math.max(1,Math.ceil(dates.length/Math.max(1,(width-80)/90)))===0)svg+=`<text x="${x(i)}" y="${bottom+21}" text-anchor="middle" font-size="10" fill="#78869a">${date.slice(5)}</text>`;});
   points.forEach((values,j)=>{
     let path='',connected=false,circles='';
     values.forEach((v,i)=>{if(v==null){connected=false;return;}const y=bottom-v/max*(bottom-top);path+=`${connected?'L':'M'}${x(i)} ${y} `;connected=true;circles+=`<circle tabindex="0" cx="${x(i)}" cy="${y}" r="3" fill="${colors[j%colors.length]}"><title>${escape(dates[i]+' · '+(rows[j].display_model||rows[j].model)+'：'+Number(v.toFixed(2))+' 个排队请求（日均）')}</title></circle>`;});
