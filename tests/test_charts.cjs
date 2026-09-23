@@ -73,3 +73,24 @@ test('idle curves stay continuous, gauges survive unknown activity, failures sta
  n.values.up=1;n.values.kv=null;history.record(snapshot(n),18000);
  assert.equal(samples[5].values.kv,null);
 });
+
+test('offset historical nulls cannot split healthy live samples',()=>{
+ const history=new History(),n=node({output_tps:20,ttft:1,waiting:0,kv:30});
+ history.record(snapshot(n),4100);history.record(snapshot(n),7100);history.record(snapshot(n),10100);
+ history.merge({step_ms:3000,entries:[{project_id:'p',node:n,samples:[1000,4000,7000,10000].map(time=>({time,values:{output_tps:time===1000?10:null}}))}]});
+ const points=history.entries.get(keyOf({id:'p'},n)).samples;
+ assert.deepEqual(points.map(p=>p.time),[1000,4000,4100,7100,10100]);
+ assert.equal(points.filter(p=>p.time>4100&&p.values.output_tps===null).length,0);
+ const result=geometry(points,'output_tps',4100,10100,30,12000);
+ assert.equal((result.line.match(/M/g)||[]).length,1);
+});
+
+test('missing observations have dashed references without fabricated solid samples or fills',()=>{
+ const points=[{time:0,values:{ttft:2}},{time:3000,values:{ttft:null}},{time:6000,values:{ttft:4}},{time:9000,values:{ttft:null}}];
+ const result=geometry(points,'ttft',0,12000,10,12000);
+ assert.equal((result.line.match(/M/g)||[]).length,2);
+ assert.equal(result.area,'');
+ assert.equal(result.reference,'M0.000,74.000 L100.000,58.000 M100.000,58.000 L200.000,58.000');
+ assert.equal(points[1].values.ttft,null);
+ assert.equal(geometry([{time:0,values:{ttft:null}}],'ttft',0,12000,10,12000).reference,'');
+});

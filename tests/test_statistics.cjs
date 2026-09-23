@@ -75,3 +75,25 @@ test('brush panning preserves span and clamps both boundaries',()=>{
   assert.match(chart,/viewBox="0 0 600 260"/);
   assert.doesNotMatch(chart,/min-width/);
 });
+
+test('missing model does not hide other models request and token bars after alias change',()=>{
+  const ctx={};vm.runInNewContext(fs.readFileSync(__dirname+'/../dashboard/statistics-bars.js','utf8'),ctx);
+  const dates=['2026-09-23'];
+  const rows=[{model:'raw-a',display_model:'主力',project:'P',node:'N',daily:[{date:dates[0],requests:42,total_tokens:900}]},{model:'raw-b',display_model:'缺测模型',project:'Q',node:'N',daily:[]}];
+  for(const [key,value] of [['requests',42],['total_tokens',900]]){
+    const chart=ctx.dailyUsageChart(rows,dates,key,'统计','次',String,String);
+    assert.match(chart,new RegExp('主力 · P：'+value));
+    assert.match(chart,/缺测模型 数据缺失/);
+    assert.match(chart,/fill="#527be9"/);
+  }
+});
+
+test('null aggregate from older API does not erase known totals when an endpoint is missing',async()=>{
+ const missing={model:'unknown',display_model:'别名',project:'P',node:'N',daily:[{date:'2026-09-22',requests:null,total_tokens:null}],requests:null,total_tokens:null,input_tokens:null,output_tokens:null};
+ const get=page(async()=>({ok:true,json:async()=>({...payload,partial:true,totals:{requests:null,total_tokens:null,input_tokens:null,output_tokens:null},rows:[...payload.rows,missing]})}));
+ await tick();
+ assert.equal(get('requests').textContent,'12');
+ assert.equal(get('total_tokens').textContent,'300');
+ assert.equal(get('error').hidden,false);
+ assert.match(get('error').textContent,/不代表完整总量/);
+});

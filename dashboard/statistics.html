@@ -22,7 +22,7 @@
 </section>
 <div class="table-head"><h2>每日用量</h2><input id="search" type="search" aria-label="搜索模型或服务" placeholder="搜索模型或服务…"></div>
 <div id="rows" class="chart-grid" aria-live="polite">正在加载统计…</div>
-<footer><div id="status" role="status">正在读取 Prometheus 历史…</div><details><summary>累计用量统计口径</summary><p>统计当前配置的服务入口，按 model_name 分列；不同入口分别计数，总计不随搜索变化。同一请求经过多个被监控入口或 PD 节点时可能重复计数。</p><p>按北京时间自然日计算计数器增量；今天统计到当前时刻。总计为每日已知数据之和；按所选日期范围估算，处理已观测到的重启归零；默认最多保留 30 天，并非服务上线以来的永久总账。接入前用量、采集缺口无法完整恢复；小数四舍五入展示。缺失指标显示 —，不计为零；总计任一对应项缺失时也显示 —。</p></details></footer>
+<footer><div id="status" role="status">正在读取 Prometheus 历史…</div><details><summary>累计用量统计口径</summary><p>统计当前配置的服务入口，按 model_name 分列；不同入口分别计数，总计不随搜索变化。同一请求经过多个被监控入口或 PD 节点时可能重复计数。</p><p>按北京时间自然日计算计数器增量；今天统计到当前时刻。总计为每日已知数据之和；按所选日期范围估算，处理已观测到的重启归零；默认最多保留 30 天，并非服务上线以来的永久总账。接入前用量、采集缺口无法完整恢复；小数四舍五入展示。缺失指标显示 —，不计为零；总计仅汇总已知用量，部分缺失时显示提示；全部缺失时显示 —。</p></details></footer>
 <section aria-label="平均吞吐" class="average-section">
 <div class="table-head"><div><h1>平均吞吐</h1><p>仅纳入吞吐 &gt; 0 的采样段 · 输入与输出分别统计</p></div><div class="actions"><label>平均值范围 <select id="average-window"><option value="12h">近 12 小时</option><option value="24h">近 24 小时</option></select></label><button id="average-refresh">刷新平均值</button></div></div>
 <div id="average-error" class="notice" role="alert" hidden></div>
@@ -46,10 +46,13 @@ function dateSlider(key){
 }
 function withDateSlider(chart,key){return chart.replace('</section>',dateSlider(key)+'</section>');}
 function selectedTotals(dates){
-  if(rangeStart===0 && rangeEnd===(data.dates||[]).length-1)return data.totals;
+  if(rangeStart===0 && rangeEnd===(data.dates||[]).length-1)return Object.fromEntries(keys.map(key=>{
+    const known=data.rows.map(row=>row[key]).filter(v=>v!=null&&Number.isFinite(v));
+    return [key,known.length?known.reduce((a,b)=>a+b,0):null];
+  }));
   return Object.fromEntries(keys.map(key=>{
     const perRow=data.rows.map(row=>dates.map(date=>row.daily?.find(day=>day.date===date)?.[key]).filter(v=>v!=null&&Number.isFinite(v)));
-    return [key,perRow.length&&perRow.every(values=>values.length)?perRow.flat().reduce((a,b)=>a+b,0):null];
+    return [key,perRow.some(values=>values.length)?perRow.flat().reduce((a,b)=>a+b,0):null];
   }));
 }
 function render(live=false){
@@ -71,7 +74,7 @@ function render(live=false){
   $('rows').innerHTML=rows.length ? charts.map((chart,i)=>withDateSlider(chart,['requests','total_tokens','waiting'][i])).join('')
     : `<div class="chart-empty">${q?'没有匹配的模型':data?'当前没有可统计的服务入口':'暂无统计数据'}</div>`;
 }
-async function load(){const id=++serial;$('refresh').disabled=true;$('error').hidden=true;data=null;keys.forEach(k=>$(k).textContent='—');$('rows').innerHTML='<div class="chart-empty">正在加载统计…</div>';$('status').textContent='正在读取 Prometheus 历史…';try{const response=await fetch('/api/statistics?window='+encodeURIComponent($('window').value));if(!response.ok)throw new Error('统计加载失败，请检查 Prometheus 连接后重试。');const next=await response.json();if(id!==serial)return;data=next;rangeStart=0;rangeEnd=Math.max(0,(data.dates||[]).length-1);keys.forEach(k=>$(k).textContent=fmt(data.totals[k]));render();$('status').textContent='统计截至：'+new Date(data.end*1000).toLocaleString('zh-CN')+' · '+data.rows.length+' 个模型 / 入口记录';if(data.partial || data.rows.some(r=>keys.some(k=>r[k]==null))){$('error').textContent='部分日期数据缺失：总计仅汇总已知数据，缺失日期用虚线标记。';$('error').hidden=false;}}catch(e){if(id!==serial)return;$('error').textContent=e.message;$('error').hidden=false;$('status').textContent='统计不可用';render();}finally{if(id===serial)$('refresh').disabled=false;}}
+async function load(){const id=++serial;$('refresh').disabled=true;$('error').hidden=true;data=null;keys.forEach(k=>$(k).textContent='—');$('rows').innerHTML='<div class="chart-empty">正在加载统计…</div>';$('status').textContent='正在读取 Prometheus 历史…';try{const response=await fetch('/api/statistics?window='+encodeURIComponent($('window').value));if(!response.ok)throw new Error('统计加载失败，请检查 Prometheus 连接后重试。');const next=await response.json();if(id!==serial)return;data=next;rangeStart=0;rangeEnd=Math.max(0,(data.dates||[]).length-1);keys.forEach(k=>$(k).textContent=fmt(data.totals[k]));render();$('status').textContent='统计截至：'+new Date(data.end*1000).toLocaleString('zh-CN')+' · '+data.rows.length+' 个模型 / 入口记录';if(data.partial || data.rows.some(r=>keys.some(k=>r[k]==null))){$('error').textContent='部分模型或日期数据缺失：总计与柱状图仅汇总已知用量；虚线标记缺失，不代表完整总量。';$('error').hidden=false;}}catch(e){if(id!==serial)return;$('error').textContent=e.message;$('error').hidden=false;$('status').textContent='统计不可用';render();}finally{if(id===serial)$('refresh').disabled=false;}}
 let brushDrag=null;
 $('rows').onpointerdown=event=>{
   const target=event.target.closest('[data-brush]');if(!data||!target||event.button!==0)return;

@@ -278,7 +278,7 @@ def usage_statistics(window):
                           for key in (*counters, "total_tokens")}
                 rows.append(dict(project=project.get("name") or project["id"], node=node.get("name") or node["id"],
                                  display_model=project.get("alias") or model or "未提供 model_name", model=model or "未提供 model_name", daily=daily, **totals))
-    totals = {key: sum(row[key] for row in rows) if rows and all(row[key] is not None for row in rows) else None
+    totals = {key: sum(row[key] for row in rows if row[key] is not None) if any(row[key] is not None for row in rows) else None
               for key in (*counters, "total_tokens")}
     partial = any(day[key] is None for row in rows for day in row["daily"] for key in counters)
     return dict(window=window, end=end, timezone="Asia/Shanghai", dates=[date for _, date in periods],

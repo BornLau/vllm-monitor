@@ -18,9 +18,12 @@
       for (const item of payload.entries) {
         const key = keyOf({id:item.project_id}, item.node);
         const entry = this.entries.get(key) || {samples:[], maxima:{}};
-        // Current-session samples win where timestamps coincide.
-        const points = new Map(item.samples.map(sample => [sample.time, sample]));
-        for (const sample of entry.samples) points.set(sample.time, sample);
+        // Range queries use a different timestamp grid. Once live collection
+        // begins, don't interleave historical nulls between healthy live points.
+        const live = entry.samples.filter(sample => sample.live);
+        const liveStart = live[0]?.time ?? Infinity;
+        const points = new Map(item.samples.filter(sample => sample.time < liveStart).map(sample => [sample.time, sample]));
+        for (const sample of live) points.set(sample.time, sample);
         entry.samples = [...points.values()].sort((a,b) => a.time-b.time);
         const cutoff = (entry.samples.at(-1)?.time || 0) - 86400000;
         entry.samples = entry.samples.filter(sample => sample.time >= cutoff).slice(-28801);
@@ -46,7 +49,7 @@
             if (node.activity === 'idle') return [name, 0];
             return [name, node.activity === 'active' && finite(node.values[name]) ? node.values[name] : null];
           }));
-          entry.samples.push({time, values});
+          entry.samples.push({time, values, live: true});
           while (entry.samples.length > 28801 || (entry.samples.length && entry.samples[0].time < time - 86400000)) entry.samples.shift();
           for (const [name] of metrics) if (finite(values[name])) entry.maxima[name] = Math.max(entry.maxima[name] || 1, values[name] * 1.2);
         }
@@ -58,7 +61,7 @@
   function geometry(samples, metric, start, end, maximum, gap) {
     // Keep a neighbor on each side so clipping does not move the filled edges.
     let first = samples.findIndex(point => point.time >= start);
-    if (first < 0) return {line: '', area: '', count: 0};
+    if (first < 0) return {line: '', area: '', reference: '', count: 0};
     first = Math.max(0, first - 1);
     const relevant = [];
     for (let i = first; i < samples.length; i++) {
@@ -88,10 +91,23 @@
       const xy = points.map(point => [(point.time-start)/(end-start)*200, 90-Math.max(0,point.values[metric])/maximum*80]);
       count += points.filter(point => point.time >= start && point.time <= end).length;
       const path = xy.map(([x,y],i) => `${i?'L':'M'}${x.toFixed(3)},${y.toFixed(3)}`).join(' ');
-      line += path;
+      line += path + (xy.length === 1 ? ` L${xy[0][0].toFixed(3)},${xy[0][1].toFixed(3)}` : '');
       if (xy.length > 1) area += `${path} L${xy.at(-1)[0].toFixed(3)},90 L${xy[0][0].toFixed(3)},90 Z `;
     }
-    return {line, area, count};
+    // Keep absent observations out of the measured line and filled area.
+    // A separate dashed layer supplies visual continuity, including a last-value
+    // reference at the right edge while waiting for the next observation.
+    const position = point => `${((point.time-start)/(end-start)*200).toFixed(3)},${(90-Math.max(0,point.values[metric])/maximum*80).toFixed(3)}`;
+    let reference = '', lastValid = null, missing = false;
+    for (const sample of relevant) {
+      if (!finite(sample.values[metric])) {missing = true; continue;}
+      if (lastValid && (missing || sample.time-lastValid.time > gap))
+        reference += `M${position(lastValid)} L${position(sample)} `;
+      lastValid = sample; missing = false;
+    }
+    if (lastValid && lastValid.time >= start && lastValid.time < end)
+      reference += `M${position(lastValid)} L${position({...lastValid,time:end})}`;
+    return {line, area, reference, count};
   }
   const api = {History, geometry, gapLimit, keyOf, metrics};
   if (typeof module !== 'undefined') module.exports = api;
@@ -121,7 +137,9 @@
       const paths = geometry(entry?.samples || [], metric, end-windowMs, end, max, Math.max(gapLimit(interval), (entry?.historyStep || 0) * 1.5));
       panel.querySelector('.chart-line').setAttribute('d', paths.line);
       panel.querySelector('.chart-area').setAttribute('d', paths.area);
-      panel.querySelector('.chart-empty').hidden = paths.count >= 2;
+      panel.querySelector('.chart-reference').setAttribute('d', paths.reference);
+      panel.querySelector('.chart-reference-note').hidden = !paths.reference;
+      panel.querySelector('.chart-empty').hidden = paths.count >= 1;
       panel.querySelector('.chart-empty').textContent = paths.count ? '正在积累采样…' : '暂无有效采样';
       panel.querySelector('.axis-max').textContent = max.toLocaleString('zh-CN',{maximumFractionDigits:1});
       const format = time => new Date(time).toLocaleTimeString('zh-CN',{hour12:false});

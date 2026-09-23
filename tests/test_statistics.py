@@ -1,5 +1,7 @@
 import json
 import unittest
+import tempfile
+from pathlib import Path
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlsplit
 from test_app import app, project
@@ -44,6 +46,32 @@ class StatisticsTests(unittest.TestCase):
         self.assertEqual(data['rows'][0]['display_model'], '主力模型')
         self.assertEqual(data['rows'][0]['model'], 'model-a')
         self.assertEqual(data['totals']['requests'], 21)
+
+    def test_saving_alias_keeps_usage_and_scrape_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = app.ModelStore(Path(directory) / 'models.sqlite3')
+            config = project()
+            config["nodes"][0].pop("api_key_env")
+            store.initialize(lambda: [config])
+            with patch.object(app, 'STORE', store), patch.object(app.time, 'time', return_value=self.NOW), patch.object(app, 'request', side_effect=self.fixture):
+                before = app.usage_statistics('7d')
+                targets = app.targets()
+                model = store.list_public()['models'][0]
+                store.save(dict(name=model['name'], url=model['url'], version=model['version'], alias='主力 Qwen'), model['id'])
+                after = app.usage_statistics('7d')
+                self.assertEqual(app.targets(), targets)
+                self.assertEqual(after['totals'], before['totals'])
+                self.assertEqual(after['rows'][0]['daily'], before['rows'][0]['daily'])
+                self.assertEqual(after['rows'][0]['display_model'], '主力 Qwen')
+                self.assertEqual(after['rows'][0]['model'], 'model-a')
+
+    def test_unobserved_endpoint_does_not_erase_known_totals(self):
+        with patch.object(app.time,'time',return_value=self.NOW), patch.object(app,'current_configuration',return_value=(0,[project(),project('unobserved')])), patch.object(app,'request',side_effect=self.fixture):
+            data=app.usage_statistics('7d')
+        self.assertTrue(data['partial'])
+        self.assertEqual(data['totals']['requests'],21)
+        self.assertEqual(data['totals']['total_tokens'],210)
+        self.assertIsNone(data['rows'][1]['requests'])
 
     def test_calendar_boundaries(self):
         from datetime import datetime, timezone, timedelta
