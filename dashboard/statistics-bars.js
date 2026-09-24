@@ -34,9 +34,12 @@ function dailyUsageChart(rows, dates, key, title, unit, format, escape, chartWid
       if(v==null)return;
       const h=v/max*(bottom-top), y=bottom-(sum+v)/max*(bottom-top);sum+=v;
       const row=rows[j], model=row.display_model||row.model;
-      const tooltip=dates[i]+' · '+model+' · '+row.project+'：'+format(v)+' '+unit
-        +(row.display_model && row.display_model!==row.model ? '\n模型：'+row.model : '')+'\n节点：'+row.node;
-      svg+=`<rect tabindex="0" data-bar-tooltip="${escape(tooltip)}" aria-label="${escape(tooltip)}" x="${x-bw/2}" y="${y}" width="${bw}" height="${h}" fill="${colors[j%colors.length]}"/>`;
+      const day = row.daily?.find(day => day.date === dates[i]) || {};
+      const heading = dates[i] + ' · ' + model;
+      const metadata = row.project + (row.display_model && row.display_model !== row.model ? ' · 模型：' + row.model : '');
+      const requests = format(day.requests), tokens = format(day.total_tokens);
+      const tooltip = heading + '\n' + metadata + '\n请求数：' + requests + '\nTokens：' + tokens;
+      svg+=`<rect tabindex="0" data-bar-tooltip="${escape(tooltip)}" data-tooltip-heading="${escape(heading)}" data-tooltip-meta="${escape(metadata)}" data-tooltip-requests="${escape(requests)}" data-tooltip-tokens="${escape(tokens)}" aria-label="${escape(tooltip)}" x="${x-bw/2}" y="${y}" width="${bw}" height="${h}" fill="${colors[j%colors.length]}"/>`;
     });
     if(missing.length===values.length){
       svg+=`<text x="${x}" y="${bottom-8}" text-anchor="middle" font-size="11" fill="#8a96a8"><title>${escape(dates[i]+'：数据缺失，不按零统计')}</title>—</text>`;

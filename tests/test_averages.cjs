@@ -80,3 +80,31 @@ test('adjacent bucket means draw a smooth curve without visible scatter markers'
   assert.equal((html.match(/r="0" fill=/g)||[]).length,3);
   assert.match(get('average-status').textContent, /每 300 秒/);
 });
+
+test('only short confirmed idle gaps get interpolation and grey bands; means stay on top', async () => {
+  for (const [state,end,expected] of [['idle',900,1],['missing',900,0],['idle',2400,0]]) {
+    const row={model:'m',tpot:{average:.02,samples:[[300,.01],[600,null],[end,.03]],states:[[600,state]]},ttft:{samples:[]}};
+    const get=page(async()=>({ok:true,json:async()=>({start:0,end,step_seconds:300,rows:[row]})})); await tick();
+    const html=get('average-rows').innerHTML;
+    assert.equal((html.match(/class="latency-interpolation"/g)||[]).length,expected);
+    assert.equal((html.match(/class="latency-idle"/g)||[]).length,expected);
+    assert.match(html,/class="average-reference"[^>]+stroke="#d04a16"/);
+    assert.ok(html.indexOf('class="average-reference"')>html.indexOf('class="latency-line"'));
+    assert.match(html,/平均 20 ms/);
+  }
+});
+
+test('latency axis fits clustered samples while retaining mean, zeros and constant values', async () => {
+  for (const [values,mean] of [[[.1,.101,.102],.101],[[.1,.101],.15],[[.1,.1],.1],[[0,0],0],[[.0001,.00011],.000105]]) {
+    const row={model:'m',tpot:{average:mean,samples:values.map((v,i)=>[i+1,v])},ttft:{samples:[]}};
+    const get=page(async()=>({ok:true,json:async()=>({start:0,end:4,step_seconds:1,rows:[row]})})); await tick();
+    const html=get('average-rows').innerHTML;
+    const [,lo,hi]=html.match(/data-metric="TPOT" data-y-min="([^"]+)" data-y-max="([^"]+)"/);
+    const min=Number(lo),max=Number(hi),extent=[...values,mean].map(v=>v*1000);
+    assert.ok(min>=0 && max>min);
+    assert.ok(min<=Math.min(...extent) && max>=Math.max(...extent));
+    if(Math.min(...extent)>=100) assert.ok(min>90);
+    if(mean===.101) assert.ok(max-min<5);
+    assert.doesNotMatch(html,/NaN|Infinity/);
+  }
+});

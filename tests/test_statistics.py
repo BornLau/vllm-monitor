@@ -185,7 +185,7 @@ class AverageTests(unittest.TestCase):
             self.assertIn('timestamp(',expr)
             self.assertIn(' == 1)',expr)
             if 'start' in params:
-                self.assertIn('avg_over_time(', expr)
+                self.assertIn('sum_over_time(' if '== bool 0' in expr else 'avg_over_time(', expr)
                 self.assertIn('[120s:3s]', expr)
                 self.assertEqual(params['start'], ['1700000120'])
             if 'time' in params:
@@ -217,3 +217,22 @@ class AverageTests(unittest.TestCase):
         with patch.object(app, 'current_configuration', return_value=(0,[])), patch.object(app, 'request', side_effect=request):
             data = app.latency_averages('custom',1700000000,1700086400)
         self.assertEqual(data['step_seconds'], 300)
+
+    def test_only_fully_observed_idle_buckets_can_be_connected(self):
+        start = 1700000010  # Aligned to the three-second evaluation grid.
+        def request(url):
+            params = parse_qs(urlsplit(url).query)
+            expr = params['query'][0]
+            labels = {'monitor_project':'one','monitor_node':'engine','model_name':'m'}
+            if 'query_range' in url:
+                values = ([[start+60,'20'], [start+120,'19'], [start+180,'0']]
+                          if '== bool 0' in expr else [[start+180,'0.02']])
+                result = {'metric':labels,'values':values}
+            else:
+                result = {'metric':labels,'value':[start+180,'1']}
+            return json.dumps({'status':'success','data':{'result':[result]}}).encode()
+        with patch.object(app, 'current_configuration', return_value=(0,[project()])), patch.object(app, 'request', side_effect=request):
+            data = app.latency_averages('custom',start,start+180)
+        for metric in ('tpot','ttft'):
+            self.assertEqual(data['rows'][0][metric]['states'], [[start+60,'idle'],[start+120,'missing'],[start+180,'observed']])
+            self.assertEqual(data['rows'][0][metric]['samples'], [[start+60,None],[start+120,None],[start+180,.02]])

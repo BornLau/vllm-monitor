@@ -82,7 +82,10 @@ test('missing model does not hide other models request and token bars after alia
   const rows=[{model:'raw-a',display_model:'主力',project:'P',node:'N',daily:[{date:dates[0],requests:42,total_tokens:900}]},{model:'raw-b',display_model:'缺测模型',project:'Q',node:'N',daily:[]}];
   for(const [key,value] of [['requests',42],['total_tokens',900]]){
     const chart=ctx.dailyUsageChart(rows,dates,key,'统计','次',String,String);
-    assert.match(chart,new RegExp('主力 · P：'+value));
+    assert.match(chart,/data-tooltip-heading="2026-09-23 · 主力"/);
+    assert.match(chart,/data-tooltip-requests="42"/);
+    assert.match(chart,/data-tooltip-tokens="900"/);
+    assert.doesNotMatch(chart,/节点：/);
     assert.doesNotMatch(chart,/stroke-dasharray/);
     assert.match(chart,/fill="#527be9"/);
   }

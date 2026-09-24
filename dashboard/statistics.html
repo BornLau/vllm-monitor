@@ -24,13 +24,13 @@
 <div id="rows" class="chart-grid" aria-live="polite">正在加载统计…</div>
 <footer><div id="status" role="status">正在读取 Prometheus 历史…</div><details><summary>累计用量统计口径</summary><p>统计当前配置的服务入口，按 model_name 分列；不同入口分别计数，总计不随搜索变化。同一请求经过多个被监控入口或 PD 节点时可能重复计数。</p><p>按北京时间自然日计算计数器增量；今天统计到当前时刻。总计为每日已知数据之和；按所选日期范围估算，处理已观测到的重启归零；默认最多保留 30 天，并非服务上线以来的永久总账。接入前用量、采集缺口无法完整恢复；小数四舍五入展示。缺失指标显示 —，不计为零；总计仅汇总已知用量，部分缺失时显示提示；全部缺失时显示 —。</p></details></footer>
 <section aria-label="平均时延" class="average-section">
-<div class="table-head"><div><h1>平均时延</h1><p>TPOT · TTFT · 曲线为分段平均时延，虚线为所选范围均值</p></div><div class="actions"><label>平均值范围 <select id="average-window"><option value="6h">近 6 小时</option><option value="12h">近 12 小时</option><option value="24h" selected>近 24 小时</option><option value="48h">近 48 小时</option><option value="7d">近 7 天</option><option value="custom">自定义时间</option></select></label><button id="average-refresh">刷新平均值</button></div></div>
+<div class="table-head"><div><h1>平均时延</h1><p>TPOT · TTFT · 曲线为分段平均时延，橙色虚线为所选范围均值</p></div><div class="actions"><label>平均值范围 <select id="average-window"><option value="6h">近 6 小时</option><option value="12h">近 12 小时</option><option value="24h" selected>近 24 小时</option><option value="48h">近 48 小时</option><option value="7d">近 7 天</option><option value="custom">自定义时间</option></select></label><button id="average-refresh">刷新平均值</button></div></div>
 <div id="average-custom" class="actions" hidden style="flex-wrap:wrap;margin-bottom:16px"><label>开始时间 <input id="average-start" type="datetime-local" required></label><label>结束时间 <input id="average-end" type="datetime-local" required></label><span style="color:var(--muted);font-size:12px">按本地时区，最长 30 天；选择后点击刷新平均值</span></div>
 <div id="average-error" class="notice" role="alert" hidden></div>
 <div id="average-tooltip" class="latency-tooltip" role="tooltip" hidden></div>
 <div id="average-rows" class="chart-grid" aria-live="polite">正在加载平均值…</div>
 <p id="average-status" role="status" style="font-size:12px;margin:12px 0">正在读取历史采样…</p>
-<details><summary>统计口径</summary><p>TPOT 为请求级每输出 Token 耗时，TTFT 为首 Token 延迟，单位均为毫秒。底层每 3 秒用最近两次采集间的耗时总量增量 ÷ 观测次数增量计算延迟，曲线上的点为各时间段内有效采样的均值（近 24 小时每 5 分钟一个点），不使用 P95 / P50，也不是逐请求原始记录。虚线为所选时间内每 3 秒有效采样的时间均值，不是请求加权均值。无新增观测、采集失败、过期或不完整的 sum/count 指标不计入均值，缺测处断线；有效零值保留。较长范围使用更宽的时间段聚合，末尾不足一个时间段单独统计；整段无有效观测时断线，虚线仍使用完整 3 秒采样计算。</p></details>
+<details><summary>统计口径</summary><p>TPOT 为请求级每输出 Token 耗时，TTFT 为首 Token 延迟，单位均为毫秒。底层每 3 秒用最近两次采集间的耗时总量增量 ÷ 观测次数增量计算延迟，曲线上的点为各时间段内有效采样的均值（近 24 小时每 5 分钟一个点），不使用 P95 / P50，也不是逐请求原始记录。虚线为所选时间内每 3 秒有效采样的时间均值，不是请求加权均值。无新增观测、采集失败、过期或不完整的 sum/count 指标不计入均值，缺测处断线；有效零值保留。较长范围使用更宽的时间段聚合，末尾不足一个时间段单独统计；仅当整个空段采集正常且无新增时延观测、前后有效点相距不超过 30 分钟时，用实线插值连接并以灰底标注；插值不计入均值。其他缺测保持断线，虚线仍使用完整 3 秒采样计算。</p></details>
 </section>
 </main>
 <div id="bar-tooltip" class="bar-tooltip" role="tooltip" hidden></div>
@@ -50,7 +50,9 @@ function showBarTooltip(target,x,y){
   if(tooltipTarget!==target)hideBarTooltip();
   tooltipTarget=target;
   const tooltip=$('bar-tooltip');
-  tooltip.textContent=target.dataset.barTooltip;
+  if (target.dataset.tooltipHeading) {
+    tooltip.innerHTML=`<div class="usage-tooltip-heading">${esc(target.dataset.tooltipHeading)}</div><div class="usage-tooltip-meta">${esc(target.dataset.tooltipMeta)}</div><div class="usage-tooltip-metrics"><div><span>请求数</span><strong>${esc(target.dataset.tooltipRequests)}</strong></div><div><span>Tokens</span><strong>${esc(target.dataset.tooltipTokens)}</strong></div></div>`;
+  } else tooltip.textContent=target.dataset.barTooltip;
   tooltip.hidden=false;target.setAttribute('aria-describedby','bar-tooltip');
   const box=tooltip.getBoundingClientRect();
   tooltip.style.left=Math.max(8,Math.min(x+12,window.innerWidth-box.width-8))+'px';

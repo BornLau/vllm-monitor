@@ -378,7 +378,7 @@ def throughput_averages(window, start=None, end=None):
     return dict(window=window, start=start, end=end, duration_seconds=end-start, step_seconds=AVERAGE_STEP, rows=rows)
 
 
-def latency_queries():
+def latency_queries(idle=False):
     group = f"{GROUP},model_name"
     result = {}
     for name, metric in {'tpot': 'request_time_per_output_token_seconds',
@@ -391,7 +391,8 @@ def latency_queries():
                   f"(time() - timestamp({count}) < {AVERAGE_STEP * 2})")
         numerator = f"sum by ({group}) (irate({total}[1m]) and ({paired}))"
         denominator = f"sum by ({group}) (irate({count}[1m]) and ({paired}))"
-        result[name] = f"(({numerator} / ({denominator} > 0)) >= 0) and on ({GROUP}) ({QUERIES['up']} == 1)"
+        value = f"({denominator} == bool 0)" if idle else f"(({numerator} / ({denominator} > 0)) >= 0)"
+        result[name] = f"{value} and on ({GROUP}) ({QUERIES['up']} == 1)"
     return result
 
 
@@ -413,9 +414,10 @@ def latency_averages(window, start=None, end=None):
                 raise ValueError('延迟统计查询失败')
             return payload.get('data', {}).get('result', [])
 
-        if kind != 'samples':
+        if kind not in ('samples', 'idle'):
             return query('query', query=f"{kind}_over_time(({expr})[{seconds}s:{AVERAGE_STEP}s])", time=end)
-        bucket = lambda width: f"avg_over_time(({expr})[{width}s:{AVERAGE_STEP}s])"
+        aggregation = "sum" if kind == "idle" else "avg"
+        bucket = lambda width: f"{aggregation}_over_time(({expr})[{width}s:{AVERAGE_STEP}s])"
         result = query('query_range', query=bucket(step), start=start + step, end=end, step=step)
         remainder = seconds % step
         if remainder:
@@ -427,13 +429,15 @@ def latency_averages(window, start=None, end=None):
     with ThreadPoolExecutor(max_workers=6) as pool:
         tasks = {(name, kind): pool.submit(read, expr, kind)
                  for name, expr in latency_queries().items() for kind in ('samples', 'avg', 'count')}
+        tasks.update({(name, 'idle'): pool.submit(read, expr, 'idle')
+                      for name, expr in latency_queries(idle=True).items()})
         for (name, kind), task in tasks.items():
             for item in task.result():
                 labels = item['metric']
                 identity = (labels.get('monitor_project'), labels.get('monitor_node'), labels.get('model_name', ''))
                 metric = series.setdefault(identity, {}).setdefault(name, {})
-                if kind == 'samples':
-                    metric.setdefault('points', {}).update({int(float(t)): float(v) if math.isfinite(float(v)) and float(v) >= 0 else None
+                if kind in ('samples', 'idle'):
+                    metric.setdefault('points' if kind == 'samples' else 'idle_points', {}).update({int(float(t)): float(v) if math.isfinite(float(v)) and float(v) >= 0 else None
                                                               for t, v in item.get('values', [])})
                 else:
                     value = float(item['value'][1])
@@ -449,7 +453,17 @@ def latency_averages(window, start=None, end=None):
                 for name in ('tpot', 'ttft'):
                     data = raw.get(name, {})
                     count = data.get('count')
-                    metrics[name] = dict(average=data.get('avg'),
+                    states = []
+                    for i, t in enumerate(timestamps):
+                        previous = timestamps[i - 1] if i else start
+                        expected = t // AVERAGE_STEP - previous // AVERAGE_STEP
+                        # Only bridge a fully observed bucket with no new latency
+                        # observations. Missing scrapes/metrics remain unknown.
+                        state = ('observed' if data.get('points', {}).get(t) is not None
+                                 else 'idle' if expected > 0 and data.get('idle_points', {}).get(t) == expected
+                                 else 'missing')
+                        states.append([t, state])
+                    metrics[name] = dict(average=data.get('avg'), states=states,
                                          observed_seconds=min(seconds, count * AVERAGE_STEP) if count is not None else None,
                                          samples=[[t, data.get('points', {}).get(t)] for t in timestamps])
                 rows.append(dict(project=project.get('name') or project['id'], node=node.get('name') or node['id'],
