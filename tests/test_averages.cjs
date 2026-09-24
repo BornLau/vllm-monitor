@@ -71,3 +71,12 @@ test('hover shows timestamp and decimal sample rather than integer axis value', 
   get('average-rows').onpointerleave();
   assert.equal(get('average-tooltip').hidden,true);
 });
+
+test('adjacent bucket means draw a smooth curve without visible scatter markers', async () => {
+  const row={model:'m',tpot:{average:.02,samples:[[300,.01],[600,.03],[900,.02]]},ttft:{samples:[]}};
+  const get=page(async()=>({ok:true,json:async()=>({start:0,end:900,step_seconds:300,rows:[row]})})); await tick();
+  const html=get('average-rows').innerHTML;
+  assert.match(html, /class="latency-line" d="M[^" ]+ C[^" ]+ [^" ]+ [^" ]+ C[^" ]+ [^" ]+ [^" ]+"/);
+  assert.equal((html.match(/r="0" fill=/g)||[]).length,3);
+  assert.match(get('average-status').textContent, /每 300 秒/);
+});

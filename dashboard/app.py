@@ -398,19 +398,31 @@ def latency_queries():
 def latency_averages(window, start=None, end=None):
     start, end = average_range(window, start, end)
     seconds = end - start
-    # Chart resolution is independent from the 3-second mean evaluation.
-    step = max(AVERAGE_STEP, math.ceil(seconds / 600))
-    timestamps = list(range(start, end + 1, step))
+    # Aggregate every valid 3-second observation into non-overlapping buckets.
+    # A 24-hour chart uses 5-minute buckets, rather than sparse instant samples.
+    step = min(seconds, max(AVERAGE_STEP, math.ceil(seconds / 288 / 60) * 60))
+    timestamps = list(range(start + step, end + 1, step))
+    if not timestamps or timestamps[-1] != end:
+        timestamps.append(end)
     series = {}
 
     def read(expr, kind):
-        params = (dict(query=expr, start=start, end=end, step=step) if kind == 'samples'
-                  else dict(query=f"{kind}_over_time(({expr})[{seconds}s:{AVERAGE_STEP}s])", time=end))
-        path = 'query_range' if kind == 'samples' else 'query'
-        payload = json.loads(request(f"{PROMETHEUS}/api/v1/{path}?" + urllib.parse.urlencode(params)))
-        if payload.get('status') != 'success':
-            raise ValueError('延迟统计查询失败')
-        return payload.get('data', {}).get('result', [])
+        def query(path, **params):
+            payload = json.loads(request(f"{PROMETHEUS}/api/v1/{path}?" + urllib.parse.urlencode(params)))
+            if payload.get('status') != 'success':
+                raise ValueError('延迟统计查询失败')
+            return payload.get('data', {}).get('result', [])
+
+        if kind != 'samples':
+            return query('query', query=f"{kind}_over_time(({expr})[{seconds}s:{AVERAGE_STEP}s])", time=end)
+        bucket = lambda width: f"avg_over_time(({expr})[{width}s:{AVERAGE_STEP}s])"
+        result = query('query_range', query=bucket(step), start=start + step, end=end, step=step)
+        remainder = seconds % step
+        if remainder:
+            # Include the final partial bucket without reading before the range.
+            for item in query('query', query=bucket(remainder), time=end):
+                result.append(dict(metric=item['metric'], values=[item['value']]))
+        return result
 
     with ThreadPoolExecutor(max_workers=6) as pool:
         tasks = {(name, kind): pool.submit(read, expr, kind)
@@ -421,8 +433,8 @@ def latency_averages(window, start=None, end=None):
                 identity = (labels.get('monitor_project'), labels.get('monitor_node'), labels.get('model_name', ''))
                 metric = series.setdefault(identity, {}).setdefault(name, {})
                 if kind == 'samples':
-                    metric['points'] = {int(float(t)): float(v) if math.isfinite(float(v)) and float(v) >= 0 else None
-                                        for t, v in item.get('values', [])}
+                    metric.setdefault('points', {}).update({int(float(t)): float(v) if math.isfinite(float(v)) and float(v) >= 0 else None
+                                                              for t, v in item.get('values', [])})
                 else:
                     value = float(item['value'][1])
                     metric[kind] = value if math.isfinite(value) and value >= 0 else None

@@ -48,7 +48,7 @@ body,button,input,select,.toolbar input,.toolbar select,.actions select,.config-
 
 .chart-reference{opacity:.65}
 
-.chart-line{stroke-linecap:round}
+.chart-line{stroke-linecap:round;stroke-linejoin:round}
 
 .app-header{position:sticky;top:0;z-index:100}
 
