@@ -39,11 +39,11 @@
     <div class="toolbar" id="toolbar" hidden>
       <input id="search" type="search" placeholder="搜索模型名称或服务地址…" aria-label="搜索模型">
       <label>状态<select id="status-filter"><option value="all">全部状态</option><option value="attention">需关注</option><option value="online">API 在线</option><option value="unavailable">指标不可用</option></select></label>
-      <label>排序<select id="sort"><option value="attention">异常优先</option><option value="name">模型名称</option><option value="waiting">等待队列最多</option><option value="throughput">输出吞吐最高</option></select></label>
+      <label>排序<select id="sort"><option value="name" selected>模型名称</option><option value="attention">异常优先</option><option value="waiting">等待队列最多</option><option value="throughput">解码速度最高</option></select></label>
       <span class="result-count" id="result-count" role="status"></span>
     </div>
     <section id="models" class="models" aria-label="模型服务列表"></section>
-    <footer><span id="history-status" role="status"></span><span id="updated">正在连接…</span><span>吞吐 / P50 基于最近两次采样（默认间隔 3 秒）· 空闲采样段不纳入性能统计</span></footer>
+    <footer><span id="history-status" role="status"></span><span id="updated">正在连接…</span><span>解码速度 = 1 / 请求级 TPOT P95（排除首 Token 时间）· 基于最近两次采样间完成的请求</span></footer>
   </main>
   <dialog id="guide">
     <div class="dialog-head"><h2>管理模型</h2><button id="close-guide" aria-label="关闭模型管理">关闭</button></div>
@@ -94,9 +94,9 @@
       const finding=n.findings.find(f=>f[0]==='critical')||n.findings[0]||['ok','指标正常',''];
       const apiNote=discoveryUnavailable(n)?'/v1/models 返回 404，推理可用性尚未验证':n.api.message;
       const fact=(label,value,unit='')=>`<div class="fact-line"><span>${label}</span><b>${fmt(value)}${value==null?'':unit}</b></div>`;
-      const extras=[['输入吞吐',v.input_tps,'tok/s'],['Token 间隔 P50',v.tpot==null?null:v.tpot*1000,'ms'],['请求耗时 P50',v.e2e,'s'],['前缀缓存命中',v.cache,'%'],['输入长度 P50',v.prompt,'tokens'],['近 1 小时抢占',v.preempt,'次']];
+      const extras=[['输入吞吐',v.input_tps,'tok/s'],['请求级 TPOT P95',v.tpot==null?null:v.tpot*1000,'ms'],['请求耗时 P50',v.e2e,'s'],['前缀缓存命中',v.cache,'%'],['输入长度 P50',v.prompt,'tokens'],['近 1 小时抢占',v.preempt,'次']];
       return `<article class="model" data-model-key="${esc(key)}"><div class="model-head"><span class="model-icon">${esc((p.alias||p.name||p.id).slice(0,1))}</span><div class="model-name"><h2>${esc(p.alias||p.name||p.id)}${p.nodes.length>1?' · '+esc(n.name||n.id):''}</h2><span>${esc(n.api_base_url||n.metrics_url)}</span></div><span class="pill ${level}" title="${esc(apiNote)}"><i class="dot"></i>${label}</span><button class="quiet" data-edit="${esc(p.id)}">编辑配置</button></div>
-      <div class="model-main"><div class="facts"><div class="fact-top">${fmt(v.output_tps)} <small>tok/s</small></div><div class="fact-caption" title="最近两次采样的 Token 增量 ÷ 采样间隔；无法扣除间隔内的空闲秒数">${n.activity==='idle'?'空闲 · 已排除':n.activity==='unknown'?'活动状态未知':'当前输出吞吐'} · 输入 ${fmt(v.input_tps)} tok/s</div><div class="fact-line"><span>运行 / 等待</span><b>${fmt(v.running)} / ${fmt(v.waiting)}</b></div>${fact('前缀缓存命中',v.cache,'%')}${fact('KV Cache',v.kv,'%')}<div class="meter"><i style="width:${Math.min(100,Math.max(0,v.kv||0))}%;background:${v.kv>=90?'var(--amber)':'var(--green)'}"></i></div></div>
+      <div class="model-main"><div class="facts"><div class="output-speed-label">解码速度</div><div class="fact-top">${fmt(v.output_tps)} <small>tok/s</small></div><div class="fact-caption" title="1 / 请求级 TPOT P95；TPOT =（请求总耗时 − 首 Token 时间）/（输出 Token 数 − 1）；无有效完成请求或指标缺失时显示 —">${n.activity==='idle'?'空闲 · 已排除':n.activity==='unknown'?'活动状态未知':'1 / TPOT P95 · 单请求'}</div><div class="input-speed-row">${fact('输入速度',v.input_tps,' tok/s')}</div><div class="fact-line"><span>运行 / 等待</span><b>${fmt(v.running)} / ${fmt(v.waiting)}</b></div>${fact('前缀缓存命中',v.cache,'%')}${fact('KV Cache',v.kv,'%')}<div class="meter"><i style="width:${Math.min(100,Math.max(0,v.kv||0))}%;background:${v.kv>=90?'var(--amber)':'var(--green)'}"></i></div></div>
       <div class="trends">${MonitorCharts.metrics.map(([metric,title,unit,color])=>`<div class="trend-panel" data-key="${esc(key)}" data-metric="${metric}"><div class="trend-head"><label title="${metric==='ttft'?'空闲段以零基线连接，不代表实测延迟为零；无新增观测时虚线仅供末值参考':''}">${title}</label><strong>${fmt(v[metric])}<small>${v[metric]==null?'':unit}</small></strong></div><div class="plot"><span class="axis-max"></span><span class="axis-zero">0</span><svg viewBox="0 0 200 100" preserveAspectRatio="none" role="img" aria-label="${esc(title+'，'+(p.alias||p.name||p.id))}" data-chart><path d="M0 10H200 M0 50H200 M0 90H200 M50 0V90 M100 0V90 M150 0V90" stroke="#383e43" stroke-width=".6" vector-effect="non-scaling-stroke"/><path class="chart-area" fill="${color}"/><path class="chart-reference" stroke="${color}" stroke-width="1.3" stroke-dasharray="4 4" fill="none" vector-effect="non-scaling-stroke"><title>虚线为缺测连接或末值参考，不代表实测数据</title></path><path class="chart-line" stroke="${color}" stroke-width="1.3" fill="none" vector-effect="non-scaling-stroke"/></svg><span class="chart-empty">正在积累采样…</span></div><div class="time-axis"><span class="axis-start"></span><span class="axis-end"></span></div></div>`).join('')}</div></div>
       <div class="model-foot"><span class="${state==='unavailable'?'muted':finding[0]}">${esc(finding[1])}</span><span>${esc(apiNote)}</span></div><details class="diagnostics" data-key="${esc(key)}" ${expanded.has(key)?'open':''}><summary>更多指标与诊断</summary><div class="extra">${extras.map(([title,value,unit])=>`<div>${title}<strong>${fmt(value)} ${value==null?'':unit}</strong></div>`).join('')}</div>${n.findings.map(([level,title,advice])=>`<div class="finding ${level}"><h3>${esc(title)}</h3><p>${esc(advice)}</p></div>`).join('')}</details></article>`;
     }
@@ -130,7 +130,9 @@
       const visible = entries.filter(([p,n]) => [p.alias,p.name,p.id,n.name,n.api_base_url,n.metrics_url].join(' ').toLocaleLowerCase().includes(query) &&
         (filter === 'all' || filter === 'attention' && needsAttention(n) || filter === 'online' && n.api.state === 'ok' || filter === 'unavailable' && performanceState(n) === 'unavailable'));
       visible.sort(([a,x],[b,y]) => {
-        if ($('sort').value === 'name') return (a.alias || a.name || a.id).localeCompare(b.alias || b.name || b.id,'zh-CN');
+        if ($('sort').value === 'name') return (a.alias || a.name || a.id).localeCompare(b.alias || b.name || b.id,'zh-CN',{numeric:true})
+          || (x.name || x.id).localeCompare(y.name || y.id,'zh-CN',{numeric:true})
+          || JSON.stringify([a.id,x.id]).localeCompare(JSON.stringify([b.id,y.id]));
         if ($('sort').value === 'waiting') return (y.values.waiting ?? -1) - (x.values.waiting ?? -1);
         if ($('sort').value === 'throughput') return (y.values.output_tps ?? -1) - (x.values.output_tps ?? -1);
         return priority(y)-priority(x);

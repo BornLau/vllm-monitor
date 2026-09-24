@@ -3,7 +3,7 @@
   const finite = value => typeof value === 'number' && Number.isFinite(value);
   const keyOf = (project, node) => JSON.stringify([project.id, node.id, node.api_base_url, node.metrics_url]);
   const metrics = [
-    ['output_tps', '输出吞吐', 'tok/s', '#527be9'],
+    ['output_tps', '解码速度', 'tok/s', '#527be9'],
     ['ttft', '首字延迟 P50', 's', '#16a6a1'],
     ['waiting', '等待队列', 'req', '#d4a148'],
     ['kv', 'KV Cache', '%', '#527be9']
@@ -58,6 +58,27 @@
       for (const key of this.entries.keys()) if (!active.has(key)) this.entries.delete(key);
     }
   }
+  function smoothPath(points) {
+    const position = ([x,y]) => `${x.toFixed(3)},${y.toFixed(3)}`;
+    if (points.length < 3)
+      return points.map((point,i) => `${i?'L':'M'}${position(point)}`).join(' ');
+    const slopes = points.slice(1).map(([x,y],i) => (y-points[i][1])/(x-points[i][0]));
+    const tangents = points.map((_,i) => {
+      if (i === 0) return slopes[0];
+      if (i === points.length-1) return slopes.at(-1);
+      const before = slopes[i-1], after = slopes[i];
+      // A shared, limited tangent gives C1 continuity. Flatten extrema and
+      // plateaus; keep control points inside each sample interval so the
+      // curve cannot invent peaks, negative values or extra oscillations.
+      return before * after > 0 ? Math.sign(before)*Math.min(Math.abs(before),Math.abs(after)) : 0;
+    });
+    let path = `M${position(points[0])}`;
+    for (let i=1; i<points.length; i++) {
+      const [x0,y0] = points[i-1], [x1,y1] = points[i], dx = (x1-x0)/3;
+      path += ` C${position([x0+dx,y0+dx*tangents[i-1]])} ${position([x1-dx,y1-dx*tangents[i]])} ${position(points[i])}`;
+    }
+    return path;
+  }
   function geometry(samples, metric, start, end, maximum, gap) {
     // Keep a neighbor on each side so clipping does not move the filled edges.
     let first = samples.findIndex(point => point.time >= start);
@@ -90,7 +111,7 @@
       }
       const xy = points.map(point => [(point.time-start)/(end-start)*200, 90-Math.max(0,point.values[metric])/maximum*80]);
       count += points.filter(point => point.time >= start && point.time <= end).length;
-      const path = xy.map(([x,y],i) => `${i?'L':'M'}${x.toFixed(3)},${y.toFixed(3)}`).join(' ');
+      const path = smoothPath(xy);
       line += path + (xy.length === 1 ? ` L${xy[0][0].toFixed(3)},${xy[0][1].toFixed(3)}` : '');
       if (xy.length > 1) area += `${path} L${xy.at(-1)[0].toFixed(3)},90 L${xy[0][0].toFixed(3)},90 Z `;
     }

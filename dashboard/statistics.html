@@ -12,7 +12,7 @@
 <div class="app-header"><div class="app-brand"><span class="brand-mark">v</span>vLLM <small>MONITOR</small></div><nav class="app-nav" aria-label="页面导航"><a href="/" >实时监控</a><a href="/stats" class="active" aria-current="page">数据统计</a></nav><div class="app-tools"><span class="pill">用量分析</span></div></div>
 <main>
 
-<header><div><h1>用量统计</h1><p>按日汇总 · 北京时间（UTC+8）</p></div><div class="actions"><div class="range-tabs" aria-label="累计用量范围"><button type="button" data-range="24h" aria-pressed="false">今天</button><button type="button" data-range="7d" aria-pressed="false">近 7 天</button><button type="button" data-range="30d" aria-pressed="true">近 30 天</button></div><label hidden>统计范围 <select id="window"><option value="24h">今天</option><option value="7d">近 7 天</option><option value="30d" selected>近 30 天</option></select></label><button id="refresh">刷新统计</button></div></header>
+<header><div><h1>用量统计</h1><p>按日汇总 · 北京时间（UTC+8）</p></div><div class="actions"><div class="range-tabs" aria-label="累计用量范围"><button type="button" data-range="24h" aria-pressed="false">今天</button><button type="button" data-range="7d" aria-pressed="false">近 7 天</button><button type="button" data-range="30d" aria-pressed="true">近 30 天</button></div><label hidden>统计范围 <select id="window"><option value="24h" selected>今天</option><option value="7d">近 7 天</option><option value="30d" selected>近 30 天</option></select></label><button id="refresh">刷新统计</button></div></header>
 <div id="error" class="notice" role="alert" hidden></div>
 <section class="cards" aria-label="总计">
 <div class="card"><span>成功请求</span><strong id="requests">—</strong><small>requests</small></div>
@@ -24,11 +24,13 @@
 <div id="rows" class="chart-grid" aria-live="polite">正在加载统计…</div>
 <footer><div id="status" role="status">正在读取 Prometheus 历史…</div><details><summary>累计用量统计口径</summary><p>统计当前配置的服务入口，按 model_name 分列；不同入口分别计数，总计不随搜索变化。同一请求经过多个被监控入口或 PD 节点时可能重复计数。</p><p>按北京时间自然日计算计数器增量；今天统计到当前时刻。总计为每日已知数据之和；按所选日期范围估算，处理已观测到的重启归零；默认最多保留 30 天，并非服务上线以来的永久总账。接入前用量、采集缺口无法完整恢复；小数四舍五入展示。缺失指标显示 —，不计为零；总计仅汇总已知用量，部分缺失时显示提示；全部缺失时显示 —。</p></details></footer>
 <section aria-label="平均吞吐" class="average-section">
-<div class="table-head"><div><h1>平均吞吐</h1><p>仅纳入吞吐 &gt; 0 的采样段 · 输入与输出分别统计</p></div><div class="actions"><label>平均值范围 <select id="average-window"><option value="12h">近 12 小时</option><option value="24h">近 24 小时</option></select></label><button id="average-refresh">刷新平均值</button></div></div>
+<div class="table-head"><div><h1>平均吞吐</h1><p>TPOT · TTFT · 虚线为所选时间内的平均值</p></div><div class="actions"><label>平均值范围 <select id="average-window"><option value="6h">近 6 小时</option><option value="12h">近 12 小时</option><option value="24h" selected>近 24 小时</option><option value="48h">近 48 小时</option><option value="7d">近 7 天</option><option value="custom">自定义时间</option></select></label><button id="average-refresh">刷新平均值</button></div></div>
+<div id="average-custom" class="actions" hidden style="flex-wrap:wrap;margin-bottom:16px"><label>开始时间 <input id="average-start" type="datetime-local" required></label><label>结束时间 <input id="average-end" type="datetime-local" required></label><span style="color:var(--muted);font-size:12px">按本地时区，最长 30 天；选择后点击刷新平均值</span></div>
 <div id="average-error" class="notice" role="alert" hidden></div>
+<div id="average-tooltip" class="latency-tooltip" role="tooltip" hidden></div>
 <div id="average-rows" class="chart-grid" aria-live="polite">正在加载平均值…</div>
 <p id="average-status" role="status" style="font-size:12px;margin:12px 0">正在读取历史采样…</p>
-<details><summary style="cursor:pointer;color:var(--muted)">统计口径</summary><p style="font-size:12px;margin-top:8px">按 3 秒等间隔取样，对大于 0 的吞吐值求平均，等价于按有效采样时长加权；采集失败、缺失和过期样本排除。有效时长与覆盖率是采样估算。全程为零时平均显示 —，有效时长为 0；没有数据时两者均为 —。输入、输出的有效时段不同，不能直接相加两者平均值。采样间隔内部的空闲秒数无法精确扣除；有负载但吞吐为零的等待阶段也会按本口径排除。</p></details>
+<details><summary>统计口径</summary><p>TPOT 为请求级每输出 Token 耗时，TTFT 为首 Token 延迟，单位均为毫秒。每个实线采样点用最近两次采集间的耗时总量增量 ÷ 观测次数增量计算，不使用 P95 / P50，也不是逐请求原始记录。虚线为所选时间内每 3 秒有效采样的时间均值，不是请求加权均值。无新增观测、采集失败、过期或不完整的 sum/count 指标不计入均值，缺测处断线；有效零值保留。较长范围降低曲线取点密度，虚线仍使用完整 3 秒采样计算。</p></details>
 </section>
 </main>
 <div id="bar-tooltip" class="bar-tooltip" role="tooltip" hidden></div>

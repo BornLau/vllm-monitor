@@ -20,3 +20,12 @@ test('auth failures and critical performance retain severity',()=>{
  assert.match(row('HTTP 401'),/pill critical/);
  assert.match(row('HTTP 404',[['critical','拥堵','等待过多']]),/pill critical/);
 });
+test('decode speed identifies request TPOT P95 and excludes TTFT',()=>{
+ const markup=row('HTTP 404');
+ assert.match(markup,/解码速度/);
+ assert.match(markup,/class="input-speed-row"/);
+ assert.match(markup,/输入速度/);
+ assert.match(markup,/请求级 TPOT P95/);
+ assert.match(markup,/请求总耗时 − 首 Token 时间/);
+ assert.doesNotMatch(markup,/Token 间隔 P50|当前输出吞吐/);
+});

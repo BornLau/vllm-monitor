@@ -47,6 +47,20 @@ CONFIG_TOKEN = secrets.token_urlsafe(32)
 ALLOWED_HOSTS = set(os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,::1,dashboard").split(","))
 
 
+def request_tpot(group=GROUP, fresh_seconds=None):
+    """Request-level P95 excludes TTFT; completed requests supply observations."""
+    raw = f"vllm:request_time_per_output_token_seconds_bucket{SELECTOR}"
+    buckets = f"irate({raw}[1m])"
+    if fresh_seconds is not None:
+        buckets = f"{buckets} and (time() - timestamp({raw}) < {fresh_seconds})"
+    return f"histogram_quantile(0.95,sum by (le,{group}) ({buckets}))"
+
+
+def decode_speed(tpot):
+    # Filter before division: zero, missing and NaN TPOT are not speeds.
+    return f"1 / ({tpot} > 0)"
+
+
 def queries():
     def metric(name):
         return "vllm:" + name + SELECTOR
@@ -71,18 +85,21 @@ def queries():
         "imbalance": f"(max by ({GROUP}) ({kv}) - min by ({GROUP}) ({kv})) * 100",
         "ttft": p50("time_to_first_token_seconds"),
         "e2e": p50("e2e_request_latency_seconds"),
-        "tpot": p50("inter_token_latency_seconds"),
+        "tpot": request_tpot(),
         "prefill": p50("request_prefill_time_seconds"),
         "prompt": p50("request_prompt_tokens"),
         "cache": f'100 * {instant_rate("prefix_cache_hits_total")} / {instant_rate("prefix_cache_queries_total")}',
         "preempt": f'sum by ({GROUP}) (increase({metric("num_preemptions_total")}[1h]))',
         "input_tps": instant_rate("prompt_tokens_total"),
-        "output_tps": instant_rate("generation_tokens_total"),
+        "output_tps": decode_speed(request_tpot()),
     }
 
     # Positive activity includes requests that finished between scrapes. Missing
     # evidence is unknown, not idle: all signals must exist to establish zero.
-    signals = [expressions[name] for name in ("running", "waiting", "input_tps", "output_tps")]
+    signals = [expressions[name] for name in ("running", "waiting", "input_tps")]
+    # Activity must still detect decoding before a request completes, and must
+    # not depend on whether this engine exposes the request TPOT histogram.
+    signals.append(instant_rate("generation_tokens_total"))
     signals += [instant_rate(name + "_count") for name in
                 ("e2e_request_latency_seconds", "time_to_first_token_seconds")]
     active = " or ".join(f"({expr} > 0)" for expr in signals)
@@ -285,18 +302,20 @@ def usage_statistics(window):
                 partial=partial, rows=rows, totals=totals)
 
 
-AVERAGE_WINDOWS = ("12h", "24h")
+AVERAGE_WINDOWS = {"6h": 21600, "12h": 43200, "24h": 86400, "48h": 172800, "7d": 604800}
 AVERAGE_STEP = 3  # Match prometheus.yml; independent of chart display resolution.
 
 
 def average_queries(window):
     expressions = {}
-    for direction, metric in (("input", "prompt_tokens_total"), ("output", "generation_tokens_total")):
-        raw = f"vllm:{metric}{SELECTOR}"
-        # Fresh counters and successful scrapes only. Filter individual series
-        # before aggregation so stale workers cannot inflate throughput.
-        fresh = f"(time() - timestamp({raw}) < {AVERAGE_STEP * 2})"
-        rate = f"sum by ({GROUP},model_name) (irate({raw}[1m]) and {fresh})"
+    for direction in ("input", "output"):
+        if direction == "output":
+            rate = decode_speed(request_tpot(f"{GROUP},model_name", AVERAGE_STEP * 2))
+        else:
+            raw = f"vllm:prompt_tokens_total{SELECTOR}"
+            # Filter stale individual series before aggregation.
+            fresh = f"(time() - timestamp({raw}) < {AVERAGE_STEP * 2})"
+            rate = f"sum by ({GROUP},model_name) (irate({raw}[1m]) and {fresh})"
         rate = f"(({rate}) and on ({GROUP}) ({QUERIES['up']} == 1))"
         positive = f"({rate} > 0)[{window}:{AVERAGE_STEP}s]"
         expressions[direction + "_average"] = f"avg_over_time({positive})"
@@ -305,12 +324,27 @@ def average_queries(window):
     return expressions
 
 
-def throughput_averages(window):
-    if window not in AVERAGE_WINDOWS:
+def average_range(window, start=None, end=None):
+    now = int(time.time())
+    if window in AVERAGE_WINDOWS:
+        end = now
+        start = end - AVERAGE_WINDOWS[window]
+    elif window == "custom":
+        try:
+            start, end = int(start), int(end)
+        except (TypeError, ValueError, OverflowError):
+            raise ValueError("请选择有效的开始和结束时间") from None
+        if start < 0 or end > now or not 3 <= end - start <= 30 * 86400:
+            raise ValueError("自定义范围需为 3 秒至 30 天，结束时间不能晚于当前时间")
+    else:
         raise ValueError("不支持的平均值范围")
+    return start, end
+
+
+def throughput_averages(window, start=None, end=None):
+    start, end = average_range(window, start, end)
     projects = current_configuration()[1]
-    end = int(time.time())
-    expressions = average_queries(window)
+    expressions = average_queries(f"{end - start}s")
 
     def read(expr):
         params = urllib.parse.urlencode({"query": expr, "time": end})
@@ -341,7 +375,75 @@ def throughput_averages(window):
                         values[direction + "_active_seconds"] = 0
                 rows.append(dict(project=project.get("name") or project["id"], node=node.get("name") or node["id"],
                                  display_model=project.get("alias") or model or "未提供 model_name", model=model or "未提供 model_name", **values))
-    return dict(window=window, end=end, step_seconds=AVERAGE_STEP, rows=rows)
+    return dict(window=window, start=start, end=end, duration_seconds=end-start, step_seconds=AVERAGE_STEP, rows=rows)
+
+
+def latency_queries():
+    group = f"{GROUP},model_name"
+    result = {}
+    for name, metric in {'tpot': 'request_time_per_output_token_seconds',
+                         'ttft': 'time_to_first_token_seconds'}.items():
+        total = f"vllm:{metric}_sum{SELECTOR}"
+        count = f"vllm:{metric}_count{SELECTOR}"
+        # Match sum/count series before aggregation so a missing or stale half
+        # cannot distort the observed-request mean. irate handles counter resets.
+        paired = (f"(time() - timestamp({total}) < {AVERAGE_STEP * 2}) and "
+                  f"(time() - timestamp({count}) < {AVERAGE_STEP * 2})")
+        numerator = f"sum by ({group}) (irate({total}[1m]) and ({paired}))"
+        denominator = f"sum by ({group}) (irate({count}[1m]) and ({paired}))"
+        result[name] = f"(({numerator} / ({denominator} > 0)) >= 0) and on ({GROUP}) ({QUERIES['up']} == 1)"
+    return result
+
+
+def latency_averages(window, start=None, end=None):
+    start, end = average_range(window, start, end)
+    seconds = end - start
+    # Chart resolution is independent from the 3-second mean evaluation.
+    step = max(AVERAGE_STEP, math.ceil(seconds / 600))
+    timestamps = list(range(start, end + 1, step))
+    series = {}
+
+    def read(expr, kind):
+        params = (dict(query=expr, start=start, end=end, step=step) if kind == 'samples'
+                  else dict(query=f"{kind}_over_time(({expr})[{seconds}s:{AVERAGE_STEP}s])", time=end))
+        path = 'query_range' if kind == 'samples' else 'query'
+        payload = json.loads(request(f"{PROMETHEUS}/api/v1/{path}?" + urllib.parse.urlencode(params)))
+        if payload.get('status') != 'success':
+            raise ValueError('延迟统计查询失败')
+        return payload.get('data', {}).get('result', [])
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        tasks = {(name, kind): pool.submit(read, expr, kind)
+                 for name, expr in latency_queries().items() for kind in ('samples', 'avg', 'count')}
+        for (name, kind), task in tasks.items():
+            for item in task.result():
+                labels = item['metric']
+                identity = (labels.get('monitor_project'), labels.get('monitor_node'), labels.get('model_name', ''))
+                metric = series.setdefault(identity, {}).setdefault(name, {})
+                if kind == 'samples':
+                    metric['points'] = {int(float(t)): float(v) if math.isfinite(float(v)) and float(v) >= 0 else None
+                                        for t, v in item.get('values', [])}
+                else:
+                    value = float(item['value'][1])
+                    metric[kind] = value if math.isfinite(value) and value >= 0 else None
+    rows = []
+    for project in current_configuration()[1]:
+        for node in project['nodes']:
+            if not node.get('metrics_url'):
+                continue
+            matches = [(key[2], raw) for key, raw in series.items() if key[:2] == (project['id'], node['id'])]
+            for model, raw in matches or [('', {})]:
+                metrics = {}
+                for name in ('tpot', 'ttft'):
+                    data = raw.get(name, {})
+                    count = data.get('count')
+                    metrics[name] = dict(average=data.get('avg'),
+                                         observed_seconds=min(seconds, count * AVERAGE_STEP) if count is not None else None,
+                                         samples=[[t, data.get('points', {}).get(t)] for t in timestamps])
+                rows.append(dict(project=project.get('name') or project['id'], node=node.get('name') or node['id'],
+                                 model=model or '未提供 model_name', display_model=project.get('alias') or model or project.get('name') or project['id'],
+                                 **metrics))
+    return dict(window=window, start=start, end=end, duration_seconds=seconds, step_seconds=step, rows=rows)
 
 
 HISTORY_METRICS = ("output_tps", "ttft", "waiting", "kv")
@@ -581,12 +683,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, "text/html; charset=utf-8", INDEX)
         if path in ("/stats", "/statistics"):
             return self.send(200, "text/html; charset=utf-8", Path(__file__).with_name("statistics.html").read_bytes())
-        if path == "/api/averages":
-            window = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query).get("window", ["12h"])[0]
-            if window not in AVERAGE_WINDOWS:
-                return self.json_response(400, {"error": "平均值仅支持 12 / 24 小时"})
+        if path in ("/api/averages", "/api/latency-averages"):
+            params = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            window = params.get("window", ["24h"])[0]
+            start, end = params.get("start", [None])[0], params.get("end", [None])[0]
             try:
-                return self.json_response(200, throughput_averages(window))
+                average_range(window, start, end)
+            except ValueError as exc:
+                return self.json_response(400, {"error": str(exc)})
+            try:
+                return self.json_response(200, (latency_averages if path == "/api/latency-averages" else throughput_averages)(window, start, end))
             except Exception as exc:
                 return self.json_response(502, {"error": safe_error(exc)})
         if path == "/api/statistics":

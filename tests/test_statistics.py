@@ -96,6 +96,14 @@ class StatisticsTests(unittest.TestCase):
 
 
 class AverageTests(unittest.TestCase):
+    def test_output_speed_uses_request_tpot_not_token_counter(self):
+        output = app.average_queries('12h')['output_average']
+        self.assertIn('histogram_quantile(0.95', output)
+        self.assertIn('request_time_per_output_token_seconds_bucket', output)
+        self.assertNotIn('generation_tokens_total', output)
+        self.assertNotIn('inter_token_latency_seconds', output)
+        self.assertIn('prompt_tokens_total', app.average_queries('12h')['input_average'])
+
     def test_nonzero_selection_precedes_average_and_keeps_labels(self):
         queries = app.average_queries('12h')
         for direction in ('input', 'output'):
@@ -128,3 +136,59 @@ class AverageTests(unittest.TestCase):
     def test_average_endpoint_rejects_unbounded_windows(self):
         with self.assertRaises(ValueError):
             app.throughput_averages('30d')
+
+    def test_average_presets_and_custom_bounds(self):
+        with patch.object(app.time, 'time', return_value=2000000000):
+            for window, seconds in app.AVERAGE_WINDOWS.items():
+                start, end = app.average_range(window)
+                self.assertEqual(end-start, seconds)
+            self.assertEqual(app.average_range('custom', '1999996400', '2000000000'), (1999996400, 2000000000))
+            for start, end in [(None,None), ('nan','inf'), (2000000000,1999999999), (1,2000000000), (1999999999,2000000001)]:
+                with self.assertRaises(ValueError):
+                    app.average_range('custom', start, end)
+
+    def test_custom_average_query_uses_selected_end_and_duration(self):
+        urls = []
+        def request(url):
+            urls.append(parse_qs(urlsplit(url).query))
+            return b'{"status":"success","data":{"result":[]}}'
+        with patch.object(app, 'current_configuration', return_value=(0, [])), patch.object(app, 'request', side_effect=request):
+            data = app.throughput_averages('custom', 1700000000, 1700021600)
+        self.assertEqual(data['duration_seconds'], 21600)
+        self.assertEqual(data['start'], 1700000000)
+        for params in urls:
+            self.assertEqual(params['time'], ['1700021600'])
+            self.assertIn('[21600s:3s]', params['query'][0])
+
+    def test_latency_means_use_full_resolution_and_history_preserves_gaps(self):
+        urls = []
+        def request(url):
+            params = parse_qs(urlsplit(url).query)
+            urls.append(params)
+            labels = {'monitor_project':'one','monitor_node':'engine','model_name':'m'}
+            if 'query_range' in url:
+                result = {'metric':labels,'values':[[1700000000,'0.02'],[1700000036,'NaN'],[1700000108,'0.04']]}
+            else:
+                result = {'metric':labels,'value':[1700021600,'300' if 'count_over_time' in params['query'][0] else '0.025']}
+            return json.dumps({'status':'success','data':{'result':[result]}}).encode()
+        with patch.object(app, 'current_configuration', return_value=(0,[project(),project('two')])), patch.object(app,'request',side_effect=request):
+            data=app.latency_averages('custom',1700000000,1700021600)
+        self.assertEqual(data['step_seconds'],36)
+        row, missing=data['rows']
+        self.assertEqual(row['tpot']['average'],.025)
+        self.assertEqual(row['ttft']['observed_seconds'],900)
+        self.assertEqual(row['tpot']['samples'][:4],[[1700000000,.02],[1700000036,None],[1700000072,None],[1700000108,.04]])
+        self.assertIsNone(missing['tpot']['average'])
+        for params in urls:
+            expr=params['query'][0]
+            self.assertIn('model_name',expr)
+            self.assertIn('timestamp(',expr)
+            self.assertIn(' == 1)',expr)
+            if 'time' in params:
+                self.assertIn('[21600s:3s]',expr)
+                self.assertEqual(params['time'],['1700021600'])
+        for expr in app.latency_queries().values():
+            self.assertNotIn('histogram_quantile',expr)
+            self.assertIn('_sum',expr)
+            self.assertIn('_count',expr)
+            self.assertIn('irate(',expr)

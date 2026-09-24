@@ -94,3 +94,43 @@ test('missing observations have dashed references without fabricated solid sampl
  assert.equal(points[1].values.ttft,null);
  assert.equal(geometry([{time:0,values:{ttft:null}}],'ttft',0,12000,10,12000).reference,'');
 });
+
+test('smooth curves pass through samples, keep peaks and share tangents on irregular intervals',()=>{
+ const samples=[[0,0],[1000,30],[5000,80],[6000,20],[9000,20],[12000,0]]
+   .map(([time,kv])=>({time,values:{kv}}));
+ const original=JSON.stringify(samples);
+ const result=geometry(samples,'kv',0,12000,100,12000);
+ const curves=[...result.line.matchAll(/C([\d.,\s-]+)/g)].map(m=>m[1].trim().split(/[\s,]+/).map(Number));
+ assert.equal(curves.length,samples.length-1);
+ assert.ok(result.area.startsWith(result.line));
+ let previous=[0,90];
+ for(let i=0;i<curves.length;i++){
+   const [x1,y1,x2,y2,x3,y3]=curves[i];
+   assert.ok(Math.abs(x3-samples[i+1].time/12000*200)<.001);
+   assert.ok(Math.abs(y3-(90-samples[i+1].values.kv/100*80))<.001);
+   // Ordered control points keep every Bezier segment inside its endpoints.
+   assert.ok(previous[0]<=x1 && x1<=x2 && x2<=x3);
+   const low=Math.min(previous[1],y3),high=Math.max(previous[1],y3);
+   assert.ok([y1,y2].every(y=>y>=low-.001 && y<=high+.001));
+   for(let j=0;j<=100;j++){
+     const t=j/100,u=1-t,y=u*u*u*previous[1]+3*u*u*t*y1+3*u*t*t*y2+t*t*t*y3;
+     assert.ok(y>=low-.001 && y<=high+.001);
+   }
+   if(i+1<curves.length){
+     const [nextX,nextY]=curves[i+1];
+     assert.ok(Math.abs((y3-y2)/(x3-x2)-(nextY-y3)/(nextX-x3))<.001);
+   }
+   previous=[x3,y3];
+ }
+ assert.equal(JSON.stringify(samples),original);
+});
+
+test('curved segments preserve missing-data and long-gap boundaries',()=>{
+ const samples=[0,3000,6000,9000,12000,15000,18000,36000,39000,42000]
+   .map((time,i)=>({time,values:{kv:time===9000?null:i*5}}));
+ const result=geometry(samples,'kv',0,45000,100,12000);
+ assert.equal((result.line.match(/M/g)||[]).length,3);
+ assert.equal((result.line.match(/C/g)||[]).length,6);
+ assert.equal((result.area.match(/Z/g)||[]).length,3);
+ assert.doesNotMatch(result.reference,/C/);
+});
