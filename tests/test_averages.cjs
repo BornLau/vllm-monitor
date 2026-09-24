@@ -11,7 +11,7 @@ test('renders two latency charts, milliseconds and dashed means', async () => {
   const get = page(async()=>({ok:true,json:async()=>({start:1,end:3,duration_seconds:2,rows:[row]})})); await tick();
   const html=get('average-rows').innerHTML;
   assert.match(html, /TPOT/); assert.match(html, /TTFT/);
-  assert.match(html, /平均 20 ms/); assert.match(html, /平均 250 ms/);
+  assert.match(html, /平均 20\.0 ms/); assert.match(html, /平均 250\.0 ms/);
   assert.equal((html.match(/class="average-reference"/g)||[]).length,2);
   assert.match(html, /stroke-dasharray="6 5"/);
   assert.match(html, /&lt;model&gt;/);
@@ -57,7 +57,7 @@ test('time ticks are whole hours and observed zero values are retained', async (
   const ticks=[...html.matchAll(/class="hour-tick".*?<text[^>]*>([^<]*)<\/text>/g)].map(m=>m[1]);
   assert.ok(ticks.length>=4);
   assert.ok(ticks.every(t=>/^\d{2}:00$/.test(t)));
-  assert.match(html,/平均 0 ms/);
+  assert.match(html,/平均 0\.0 ms/);
 });
 test('hover shows timestamp and decimal sample rather than integer axis value', async () => {
   const get=page(async()=>({ok:true,json:async()=>({start:1,end:2,rows:[]})})); await tick();
@@ -90,7 +90,7 @@ test('only short confirmed idle gaps get interpolation and grey bands; means sta
     assert.equal((html.match(/class="latency-idle"/g)||[]).length,expected);
     assert.match(html,/class="average-reference"[^>]+stroke="#d04a16"/);
     assert.ok(html.indexOf('class="average-reference"')>html.indexOf('class="latency-line"'));
-    assert.match(html,/平均 20 ms/);
+    assert.match(html,/平均 20\.0 ms/);
   }
 });
 
