@@ -130,7 +130,17 @@
       reference += `M${position(lastValid)} L${position({...lastValid,time:end})}`;
     return {line, area, reference, count};
   }
-  const api = {History, geometry, gapLimit, keyOf, metrics};
+  function nearestSample(samples, time, start, end, gap) {
+    let low = 0, high = samples.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (samples[mid].time < time) low = mid + 1; else high = mid;
+    }
+    return [samples[low - 1], samples[low]]
+      .filter(sample => sample && sample.time >= start && sample.time <= end && Math.abs(sample.time-time) <= gap/2)
+      .sort((a,b) => Math.abs(a.time-time)-Math.abs(b.time-time))[0] || null;
+  }
+  const api = {History, geometry, gapLimit, keyOf, metrics, nearestSample};
   if (typeof module !== 'undefined') module.exports = api;
   if (!root.document) return;
   const history = new History(); let windowMs = 900000, interval = 3000, paused = false, frozen = null, latest = null, frame = null, lastDraw = 0;
@@ -141,9 +151,64 @@
     if (entry.isIntersecting) visible.add(entry.target); else visible.delete(entry.target);
   }));
   const observed = new Set();
+  const chartState = new WeakMap();
+  let hovered = null;
+  function hideHover() {
+    const marker = hovered?.panel.querySelector('.chart-hover');
+    if (marker) marker.hidden = true;
+    hovered = null;
+  }
+  function showHover() {
+    if (!hovered) return;
+    const {panel, clientX, clientY} = hovered, state = chartState.get(panel);
+    if (!panel.isConnected || !state) {hideHover(); return;}
+    const plot = panel.querySelector('.plot'), rect = plot.getBoundingClientRect();
+    if (!rect.width || clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {hideHover(); return;}
+    const ratio = (clientX-rect.left)/rect.width;
+    const time = state.start + ratio*(state.end-state.start);
+    const sample = nearestSample(state.samples, time, state.start, state.end, state.gap);
+    const value = sample?.values[state.metric];
+    const [,,unit,color] = metrics.find(([name]) => name === state.metric);
+    const marker = panel.querySelector('.chart-hover');
+    if (!marker) {hideHover(); return;}
+    marker.hidden = !finite(value);
+    if (!finite(value)) return;
+    const x = (sample.time-state.start)/(state.end-state.start)*100;
+    marker.style.setProperty('--point-x', `${x}%`);
+    marker.style.setProperty('--point-y', `${90-Math.max(0,value)/state.max*80}%`);
+    marker.style.color = color;
+    marker.querySelector('.chart-hover-value').textContent = `${value.toLocaleString('zh-CN',{maximumFractionDigits:2})} ${unit}`;
+    const timeLabel = marker.querySelector('.chart-hover-time');
+    timeLabel.textContent = new Date(sample.time).toLocaleTimeString('zh-CN',{hour12:false});
+    // Keep the time label inside the plot even at the first and last sample.
+    timeLabel.style.left = `${Math.max(0, Math.min(rect.width-timeLabel.offsetWidth, rect.width*x/100-timeLabel.offsetWidth/2))}px`;
+  }
+  function bindHover(panel) {
+    const plot = panel.querySelector('.plot'), marker = document.createElement('div');
+    marker.className = 'chart-hover';
+    marker.hidden = true;
+    marker.setAttribute('aria-hidden', 'true');
+    marker.innerHTML = '<span class="chart-hover-vertical"></span><span class="chart-hover-horizontal"></span><span class="chart-hover-dot"></span><span class="chart-hover-value"></span><span class="chart-hover-time"></span>';
+    plot.append(marker);
+    plot.addEventListener('pointermove', event => {
+      if (hovered?.panel !== panel) hideHover();
+      hovered = {panel, clientX:event.clientX, clientY:event.clientY};
+      showHover();
+    });
+    plot.addEventListener('pointerleave', hideHover);
+    plot.addEventListener('pointercancel', hideHover);
+  }
+  window.addEventListener('scroll', hideHover, true);
+  window.addEventListener('resize', hideHover);
+  window.addEventListener('blur', hideHover);
+  document.addEventListener('visibilitychange', hideHover);
+  document.addEventListener('pointermove', event => {
+    if (hovered && !hovered.panel.querySelector('.plot').contains(event.target)) hideHover();
+  });
   function observe() {
+    if (hovered && !hovered.panel.isConnected) hideHover();
     for (const panel of observed) if (!panel.isConnected) {observer.unobserve(panel); observed.delete(panel); visible.delete(panel);}
-    document.querySelectorAll('.trend-panel').forEach(panel => {if (!observed.has(panel)) {observer.observe(panel); observed.add(panel);}});
+    document.querySelectorAll('.trend-panel').forEach(panel => {if (!observed.has(panel)) {bindHover(panel); observer.observe(panel); observed.add(panel);}});
     draw(true);
   }
   function draw(force = false) {
@@ -155,7 +220,9 @@
     for (const panel of visible) {
       const entry = history.entries.get(panel.dataset.key), metric = panel.dataset.metric;
       const max = metric === 'kv' ? Math.max(100,entry?.maxima.kv || 100) : entry?.maxima[metric] || 1;
-      const paths = geometry(entry?.samples || [], metric, end-windowMs, end, max, Math.max(gapLimit(interval), (entry?.historyStep || 0) * 1.5));
+      const samples = entry?.samples || [], gap = Math.max(gapLimit(interval), (entry?.historyStep || 0) * 1.5);
+      chartState.set(panel, {samples, metric, start:end-windowMs, end, max, gap});
+      const paths = geometry(samples, metric, end-windowMs, end, max, gap);
       panel.querySelector('.chart-line').setAttribute('d', paths.line);
       panel.querySelector('.chart-area').setAttribute('d', paths.area);
       panel.querySelector('.chart-reference').setAttribute('d', paths.reference);
@@ -166,6 +233,7 @@
       panel.querySelector('.axis-start').textContent = format(end-windowMs);
       panel.querySelector('.axis-end').textContent = format(end);
     }
+    showHover();
   }
   function animate() {frame = null; if (paused || document.hidden) return; draw(); frame=requestAnimationFrame(animate);}
   function motion() {

@@ -62,3 +62,14 @@ body,button,input,select,.toolbar input,.toolbar select,.actions select,.config-
 .output-speed-label{display:inline-block;font-size:12px;font-weight:600;color:#527be9;background:#edf2ff;padding:3px 8px;border-radius:4px;margin-bottom:6px}.input-speed-row{border-top:1px solid var(--line);padding-top:8px;margin:12px 0}.input-speed-row .fact-line{flex-wrap:wrap;row-gap:3px}.input-speed-row b{white-space:nowrap}
 
 .usage-tooltip-heading{font-size:13px;font-weight:600}.usage-tooltip-meta{font-size:11px;color:#bdc9da;margin-top:3px}.usage-tooltip-metrics{display:flex;gap:28px;border-top:1px solid #ffffff26;margin-top:10px;padding-top:10px}.usage-tooltip-metrics span{display:block;color:#bdc9da;font-size:11px}.usage-tooltip-metrics strong{display:block;color:#fff;font-size:22px;font-weight:650;line-height:1.4;font-variant-numeric:tabular-nums}.bar-tooltip{white-space:normal}
+
+.trend-panel .plot{cursor:crosshair}
+/* Chart-owned overlay survives snapshot patches and never captures the pointer. */
+.chart-hover{position:absolute;inset:0;pointer-events:none;z-index:2;font:11px/1.5 ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.chart-hover-vertical{position:absolute;left:var(--point-x);top:0;height:90%;border-left:1px dashed #8996aa}
+.chart-hover-horizontal{position:absolute;top:var(--point-y);left:0;right:0;border-top:1px dashed #8996aa}
+.chart-hover-dot{position:absolute;left:var(--point-x);top:var(--point-y);width:6px;height:6px;transform:translate(-50%,-50%);border-radius:50%;background:currentColor;box-shadow:0 0 0 2px white}
+.chart-hover-value,.chart-hover-time{position:absolute;background:white;color:#425570;border:1px solid #cbd5e1;padding:1px 4px;white-space:nowrap;border-radius:2px}
+.chart-hover-value{left:0;top:var(--point-y);transform:translateY(-50%)}
+.chart-hover-time{top:100%;margin-top:4px}
+.chart-hover[hidden]{display:none}

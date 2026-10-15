@@ -1,6 +1,6 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {History,geometry,gapLimit,keyOf}=require('../dashboard/charts.js');
+const {History,geometry,gapLimit,keyOf,nearestSample}=require('../dashboard/charts.js');
 const node=(values={},url='http://model/v1')=>({id:'n',activity:'active',api_base_url:url,values:{up:1,...values}});
 const snapshot=n=>({projects:[{id:'p',nodes:[n]}]});
 test('real values only, cached snapshots deduplicate, URLs isolate history',()=>{
@@ -133,4 +133,16 @@ test('curved segments preserve missing-data and long-gap boundaries',()=>{
  assert.equal((result.line.match(/C/g)||[]).length,6);
  assert.equal((result.area.match(/Z/g)||[]).length,3);
  assert.doesNotMatch(result.reference,/C/);
+});
+
+
+test('hover selects the nearest visible sample without skipping missing values or bridging long gaps',()=>{
+ const points=[0,3000,6000,30000].map(time=>({time,values:{kv:time===3000?null:0}}));
+ assert.equal(nearestSample(points,500,0,30000,12000),points[0]);
+ assert.equal(nearestSample(points,2800,0,30000,12000),points[1]);
+ assert.equal(nearestSample(points,5900,0,30000,12000),points[2]);
+ assert.equal(nearestSample(points,18000,0,30000,12000),null);
+ assert.equal(nearestSample(points,30000,0,10000,12000),null);
+ assert.equal(nearestSample(points,0,1000,2000,12000),null);
+ assert.equal(nearestSample([],500,0,30000,12000),null);
 });

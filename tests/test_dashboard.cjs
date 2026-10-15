@@ -29,3 +29,11 @@ test('decode speed identifies request TPOT P95 and excludes TTFT',()=>{
  assert.match(markup,/请求总耗时 − 首 Token 时间/);
  assert.doesNotMatch(markup,/Token 间隔 P50|当前输出吞吐/);
 });
+
+test('snapshot patch preserves the chart-owned plot and hover overlay',()=>{
+ context.oldPlot={nodeType:1,tagName:'DIV',hasAttribute:name=>name==='data-chart-plot'};
+ context.freshPlot={nodeType:1,tagName:'DIV'};
+ // Accessing attributes/children would patch away the dynamically created crosshair.
+ Object.defineProperty(context.oldPlot,'attributes',{get(){throw Error('chart plot must not be patched');}});
+ vm.runInContext('patchNode(oldPlot,freshPlot)',context);
+});
