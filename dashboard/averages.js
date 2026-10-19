@@ -84,7 +84,7 @@
   let serial = 0;
   async function load() {
     const id = ++serial, window = el('average-window').value;
-    el('average-tooltip').hidden = true;
+    hideStatisticsCrosshair();
     el('average-refresh').disabled = true;
     el('average-error').hidden = true;
     el('average-rows').innerHTML = '<div class="chart-empty">正在加载平均值…</div>';
@@ -121,37 +121,40 @@
       if (id === serial) el('average-refresh').disabled = false;
     }
   }
-  const tooltip = el('average-tooltip');
   el('average-rows').onpointermove = event => {
     const svg = event.target.closest('svg[data-metric]');
-    if (!svg) { tooltip.hidden = true; return; }
+    if (!svg) { hideStatisticsCrosshair(); return; }
     const point = svg.createSVGPoint();
     point.x = event.clientX; point.y = event.clientY;
     const position = point.matrixTransform(svg.getScreenCTM().inverse());
     if (position.x < 82 || position.x > 510 || position.y < 25 || position.y > 155) {
-      tooltip.hidden = true; return;
+      hideStatisticsCrosshair(); return;
     }
     const idle = [...svg.querySelectorAll('rect[data-idle-start]')].find(band => {
       const left = Number(band.getAttribute('x')), width = Number(band.getAttribute('width'));
       return band.dataset.idleStart && position.x > left && position.x < left + width;
     });
-    if (idle) {
-      tooltip.textContent = '此间隔无新增时延观测，实线为插值参考，不参与均值计算';
-    } else {
-      let closest = null, distance = Infinity;
-      for (const sample of svg.querySelectorAll('circle[data-time]')) {
-        const delta = Math.abs(Number(sample.getAttribute('cx')) - position.x);
-        if (delta < distance) { distance = delta; closest = sample; }
-      }
-      if (!closest || distance > 8) { tooltip.hidden = true; return; }
-      tooltip.textContent = new Date(Number(closest.dataset.time) * 1000).toLocaleString('zh-CN', {hour12:false})
-        + ' · ' + svg.dataset.metric + ' ' + number(Number(closest.dataset.value)) + ' ms';
+    if (idle) { hideStatisticsCrosshair(); return; }
+    let closest = null, distance = Infinity;
+    for (const sample of svg.querySelectorAll('circle[data-time]')) {
+      const delta = Math.abs(Number(sample.getAttribute('cx')) - position.x);
+      if (delta < distance) { distance = delta; closest = sample; }
     }
-    tooltip.hidden = false;
-    tooltip.style.left = Math.max(8, Math.min(event.clientX + 12, window.innerWidth - tooltip.offsetWidth - 8)) + 'px';
-    tooltip.style.top = Math.max(8, event.clientY - tooltip.offsetHeight - 12) + 'px';
+    if (!closest || distance > 8) { hideStatisticsCrosshair(); return; }
+    showStatisticsCrosshair(svg, {
+      x:Number(closest.getAttribute('cx')), y:Number(closest.getAttribute('cy')),
+      left:82, right:510, top:25, bottom:155,
+      time:new Date(Number(closest.dataset.time)*1000).toLocaleString('zh-CN',{hour12:false}),
+      value:number(Number(closest.dataset.value))+' ms'
+    });
   };
-  el('average-rows').onpointerleave = () => { tooltip.hidden = true; };
+  el('average-rows').onpointerleave = el('average-rows').onpointercancel = hideStatisticsCrosshair;
+  if (typeof window !== 'undefined' && window.addEventListener) {
+    window.addEventListener('scroll', hideStatisticsCrosshair, true);
+    window.addEventListener('resize', hideStatisticsCrosshair);
+    window.addEventListener('blur', hideStatisticsCrosshair);
+    document.addEventListener('visibilitychange', hideStatisticsCrosshair);
+  }
   const localDate = date => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   el('average-end').value = localDate(new Date());
   el('average-start').value = localDate(new Date(Date.now() - 24 * 3600000));

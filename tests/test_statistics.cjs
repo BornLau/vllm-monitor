@@ -100,3 +100,19 @@ test('null aggregate from older API does not erase known totals when an endpoint
  assert.equal(get('error').hidden,false);
  assert.match(get('error').textContent,/不代表完整总量/);
 });
+
+test('queue crosshair chooses the nearest model on the selected day and clears missing dates',()=>{
+ const context=vm.createContext({});
+ vm.runInContext(fs.readFileSync(__dirname+'/../dashboard/statistics-bars.js','utf8'),context);
+ let markup='',removed=false;
+ let position={x:120,y:80};
+ const sample=(x,y,model)=>({getAttribute:name=>String(name==='cx'?x:y),dataset:{date:'2026-09-22',value:'1.25',model}});
+ const svg={dataset:{right:'784',step:'30'},createSVGPoint:()=>({matrixTransform:()=>position}),getScreenCTM:()=>({inverse:()=>({})}),querySelectorAll:()=>[sample(120,160,'far'),sample(120,82,'<near>')],insertAdjacentHTML:(_,html)=>{markup=html;},querySelector:()=>({remove:()=>{removed=true;}})};
+ context.event={target:{closest:()=>svg},clientX:120,clientY:80};
+ vm.runInContext('showQueueCrosshair(event)',context);
+ assert.match(markup,/&lt;near&gt;/); assert.match(markup,/1.25 req/);
+ assert.match(markup,/M120 16V230 M64 82H784/);
+ position={x:300,y:80};markup='';
+ vm.runInContext('showQueueCrosshair(event)',context);
+ assert.equal(removed,true);assert.equal(markup,'');
+});

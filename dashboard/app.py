@@ -12,9 +12,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from storage import ConflictError, ModelStore
+from statistics_cache import HistoryCache, summarize
+from bisect import bisect_right
 
 
 def load_dotenv(path):
@@ -183,7 +186,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None  # Never forward credentials to a redirect destination.
 
 
-def request(url, key_env=None, limit=8 * 1024 * 1024, secret=None):
+def request(url, key_env=None, limit=8 * 1024 * 1024, secret=None, timeout=5):
     headers = {}
     if secret is None and key_env:
         secret = os.getenv(key_env)
@@ -192,7 +195,7 @@ def request(url, key_env=None, limit=8 * 1024 * 1024, secret=None):
     if secret:
         headers["Authorization"] = "Bearer " + secret
     opener = urllib.request.build_opener(NoRedirect())
-    with opener.open(urllib.request.Request(url, headers=headers), timeout=5) as response:
+    with opener.open(urllib.request.Request(url, headers=headers), timeout=timeout) as response:
         body = response.read(limit + 1)
         if len(body) > limit:
             raise ValueError("上游响应超过大小限制")
@@ -231,6 +234,15 @@ def daily_periods(window, now):
              (midnight - timedelta(days=i)).strftime("%Y-%m-%d")) for i in reversed(range(days))]
 
 
+@lru_cache(maxsize=32)
+def completed_usage_query(url, cache_hour):
+    """Reuse completed-day scans for one hour; never cache query failures."""
+    payload = json.loads(request(url, timeout=5))
+    if payload.get("status") != "success":
+        raise ValueError("统计查询失败")
+    return payload.get("data", {}).get("result", [])
+
+
 def usage_statistics(window):
     projects = current_configuration()[1]
     end = int(time.time())
@@ -240,7 +252,11 @@ def usage_statistics(window):
 
     def read(metric):
         def fetch(path, params):
-            payload = json.loads(request(f"{PROMETHEUS}/api/v1/{path}?" + urllib.parse.urlencode(params)))
+            url = f"{PROMETHEUS}/api/v1/{path}?" + urllib.parse.urlencode(params)
+            if path == "query_range":
+                # Copy the list before appending today's live result below.
+                return list(completed_usage_query(url, int(time.time()) // 3600))
+            payload = json.loads(request(url, timeout=5))
             if payload.get("status") != "success":
                 raise ValueError("统计查询失败")
             return payload.get("data", {}).get("result", [])
@@ -263,7 +279,7 @@ def usage_statistics(window):
     date_for_time = {start+86400: date for start, date in periods[:-1]}
     date_for_time[end] = periods[-1][1]
     series = {}
-    with ThreadPoolExecutor(max_workers=3) as pool:
+    with ThreadPoolExecutor(max_workers=4) as pool:
         tasks = {name: pool.submit(read, metric) for name, metric in dict(counters, waiting="num_requests_waiting").items()}
         for name, task in tasks.items():
             for result in task.result():
@@ -348,7 +364,7 @@ def throughput_averages(window, start=None, end=None):
 
     def read(expr):
         params = urllib.parse.urlencode({"query": expr, "time": end})
-        payload = json.loads(request(f"{PROMETHEUS}/api/v1/query?" + params))
+        payload = json.loads(request(f"{PROMETHEUS}/api/v1/query?" + params, timeout=5))
         if payload.get("status") != "success":
             raise ValueError("平均吞吐查询失败")
         return payload.get("data", {}).get("result", [])
@@ -399,49 +415,90 @@ def latency_queries(idle=False):
 def latency_averages(window, start=None, end=None):
     start, end = average_range(window, start, end)
     seconds = end - start
-    # Aggregate every valid 3-second observation into non-overlapping buckets.
-    # A 24-hour chart uses 5-minute buckets, rather than sparse instant samples.
     step = min(seconds, max(AVERAGE_STEP, math.ceil(seconds / 288 / 60) * 60))
-    timestamps = list(range(start + step, end + 1, step))
+    # Align chart buckets to full minutes so minute rollups can be reused by
+    # all presets. Partial start/end minutes still use exact 3-second samples.
+    timestamps = list(range((start//step+1)*step, end+1, step))
     if not timestamps or timestamps[-1] != end:
         timestamps.append(end)
+    cache = HistoryCache(os.getenv('STATISTICS_CACHE_DB', str(Path(os.getenv('CONFIG_DB', str(Path(__file__).resolve().parent.parent / 'data/models.sqlite3'))).with_name('statistics-cache.sqlite3'))))
     series = {}
+    tile_seconds = 86400
+    full_start, full_end = (start+59)//60*60, end//60*60
+    stable = (int(time.time())-60)//60*60
+    jobs = []
+    for name, expr in latency_queries().items():
+        idle = latency_queries(idle=True)[name]
+        if full_start < full_end:
+            for tile in range(full_start//tile_seconds*tile_seconds, full_end, tile_seconds):
+                finish = min(tile+tile_seconds, full_end, stable)
+                if finish > max(tile,full_start):
+                    jobs.append((name,expr,idle,tile+60,finish,True,True,max(tile+60,full_start+60)))
+            if full_end > max(stable,full_start):
+                jobs.append((name,expr,idle,max(stable,full_start)+60,full_end,False,True,max(stable,full_start)+60))
+        edges = [(start,min(full_start,end)), (max(full_end,full_start,start),end)]
+        if full_start >= end:
+            edges = [(start,end)]
+        for lo,hi in edges:
+            first, last = (lo//3+1)*3, hi//3*3
+            if first <= last:
+                jobs.append((name,expr,idle,first,last,last<=stable,False,first))
 
-    def read(expr, kind):
-        def query(path, **params):
-            payload = json.loads(request(f"{PROMETHEUS}/api/v1/{path}?" + urllib.parse.urlencode(params)))
+    def read(job):
+        name, expr, idle, begin, finish, cached, rollup, clip = job
+        def query(expression, lo, hi, resolution):
+            params = urllib.parse.urlencode(dict(query=expression,start=lo,end=hi,step=resolution,timeout='4s'))
+            payload = json.loads(request(f'{PROMETHEUS}/api/v1/query_range?'+params,timeout=5))
             if payload.get('status') != 'success':
                 raise ValueError('延迟统计查询失败')
             return payload.get('data', {}).get('result', [])
+        def fetch(lo,hi):
+            if not rollup:
+                return query(f'({expr}) or (({idle} == 1) * -1)',lo,hi,3)
+            # Aggregate in Prometheus before transfer: 20x fewer points, retaining
+            # all three-second samples and their exact observation/idle counts.
+            expressions = [f'sum_over_time(({expr})[60s:3s])',
+                           f'count_over_time(({expr})[60s:3s])',
+                           f'sum_over_time(({idle})[60s:3s])']
+            merged = {}
+            with ThreadPoolExecutor(max_workers=3) as workers:
+                for field, results in enumerate(workers.map(lambda expression:query(expression,lo,hi,60),expressions)):
+                    for item in results:
+                        key = json.dumps(item['metric'],sort_keys=True)
+                        row = merged.setdefault(key,dict(metric=item['metric'],points={}))
+                        for timestamp, raw in item.get('values',[]):
+                            value = float(raw)
+                            if math.isfinite(value) and value>=0:
+                                row['points'].setdefault(int(float(timestamp)),[0.0,0,0])[field] = value
+            return [dict(metric=row['metric'],values=[[t,*values] for t,values in sorted(row['points'].items())]) for row in merged.values()]
+        source = PROMETHEUS+expr+(':minute' if rollup else ':edge')
+        results = cache.read(source,begin,finish,fetch,resolution=60 if rollup else 3) if cached else summarize(fetch(begin,finish))
+        return name,results,clip,finish
 
-        if kind not in ('samples', 'idle'):
-            return query('query', query=f"{kind}_over_time(({expr})[{seconds}s:{AVERAGE_STEP}s])", time=end)
-        aggregation = "sum" if kind == "idle" else "avg"
-        bucket = lambda width: f"{aggregation}_over_time(({expr})[{width}s:{AVERAGE_STEP}s])"
-        result = query('query_range', query=bucket(step), start=start + step, end=end, step=step)
-        remainder = seconds % step
-        if remainder:
-            # Include the final partial bucket without reading before the range.
-            for item in query('query', query=bucket(remainder), time=end):
-                result.append(dict(metric=item['metric'], values=[item['value']]))
-        return result
-
-    with ThreadPoolExecutor(max_workers=6) as pool:
-        tasks = {(name, kind): pool.submit(read, expr, kind)
-                 for name, expr in latency_queries().items() for kind in ('samples', 'avg', 'count')}
-        tasks.update({(name, 'idle'): pool.submit(read, expr, 'idle')
-                      for name, expr in latency_queries(idle=True).items()})
-        for (name, kind), task in tasks.items():
-            for item in task.result():
+    # Keep both upstream load and intermediate response memory bounded.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pending = iter(jobs)
+        tasks = [pool.submit(read, job) for job in [next(pending, None) for _ in range(2)] if job]
+        while tasks:
+            name, results, begin, finish = tasks.pop(0).result()
+            job = next(pending, None)
+            if job:
+                tasks.append(pool.submit(read, job))
+            for item in results:
                 labels = item['metric']
                 identity = (labels.get('monitor_project'), labels.get('monitor_node'), labels.get('model_name', ''))
-                metric = series.setdefault(identity, {}).setdefault(name, {})
-                if kind in ('samples', 'idle'):
-                    metric.setdefault('points' if kind == 'samples' else 'idle_points', {}).update({int(float(t)): float(v) if math.isfinite(float(v)) and float(v) >= 0 else None
-                                                              for t, v in item.get('values', [])})
-                else:
-                    value = float(item['value'][1])
-                    metric[kind] = value if math.isfinite(value) and value >= 0 else None
+                times = item['times']
+                for index, timestamp in enumerate(timestamps):
+                    previous = timestamps[index-1] if index else start
+                    lo = bisect_right(times, max(previous,begin-1))
+                    hi = bisect_right(times, min(timestamp,finish))
+                    if hi <= lo:
+                        continue
+                    metric = series.setdefault(identity, {}).setdefault(name, {})
+                    bucket = metric.setdefault(timestamp, [0.0,0,0])
+                    bucket[0] += max(0, item['sums'][hi]-item['sums'][lo])
+                    bucket[1] += item['counts'][hi]-item['counts'][lo]
+                    bucket[2] += item['idle'][hi]-item['idle'][lo]
     rows = []
     for project in current_configuration()[1]:
         for node in project['nodes']:
@@ -452,24 +509,34 @@ def latency_averages(window, start=None, end=None):
                 metrics = {}
                 for name in ('tpot', 'ttft'):
                     data = raw.get(name, {})
-                    count = data.get('count')
-                    states = []
+                    count = sum(bucket[1] for bucket in data.values())
+                    mean = sum(bucket[0] for bucket in data.values()) / count if count else None
+                    states, samples = [], []
                     for i, t in enumerate(timestamps):
-                        previous = timestamps[i - 1] if i else start
+                        previous = timestamps[i-1] if i else start
                         expected = t // AVERAGE_STEP - previous // AVERAGE_STEP
-                        # Only bridge a fully observed bucket with no new latency
-                        # observations. Missing scrapes/metrics remain unknown.
-                        state = ('observed' if data.get('points', {}).get(t) is not None
-                                 else 'idle' if expected > 0 and data.get('idle_points', {}).get(t) == expected
-                                 else 'missing')
-                        states.append([t, state])
-                    metrics[name] = dict(average=data.get('avg'), states=states,
-                                         observed_seconds=min(seconds, count * AVERAGE_STEP) if count is not None else None,
-                                         samples=[[t, data.get('points', {}).get(t)] for t in timestamps])
+                        total, observations, idle = data.get(t, [0, 0, 0])
+                        states.append([t, 'observed' if observations else 'idle' if expected > 0 and idle == expected else 'missing'])
+                        samples.append([t, total/observations if observations else None])
+                    metrics[name] = dict(average=mean, states=states,
+                                         observed_seconds=min(seconds,count*AVERAGE_STEP) if count else None,
+                                         samples=samples)
                 rows.append(dict(project=project.get('name') or project['id'], node=node.get('name') or node['id'],
                                  model=model or '未提供 model_name', display_model=project.get('alias') or model or project.get('name') or project['id'],
                                  **metrics))
     return dict(window=window, start=start, end=end, duration_seconds=seconds, step_seconds=step, rows=rows)
+
+
+def warm_statistics(stop):
+    """Prepare shared history before a page visit; subsequent work is incremental."""
+    while not stop.is_set():
+        if any(node.get('metrics_url') for project in current_configuration()[1] for node in project['nodes']):
+            try:
+                latency_averages('7d')
+                usage_statistics('7d')
+            except Exception as exc:
+                print('统计历史预热暂未完成：'+safe_error(exc), flush=True)
+        stop.wait(60)
 
 
 HISTORY_METRICS = ("output_tps", "ttft", "waiting", "kv")
@@ -778,5 +845,6 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == "__main__":
     STORE = ModelStore(os.getenv("CONFIG_DB", str(Path(__file__).resolve().parent.parent / "data/models.sqlite3")))
     STORE.initialize(lambda: models_from_env() or load_config())
+    threading.Thread(target=warm_statistics, args=(threading.Event(),), daemon=True).start()
     print(f"Loaded {len(current_configuration()[1])} projects; http://127.0.0.1:{os.getenv('PORT', '3000')}", flush=True)
     ThreadingHTTPServer((os.getenv("BIND_ADDRESS", "0.0.0.0"), int(os.getenv("PORT", "3000"))), Handler).serve_forever()

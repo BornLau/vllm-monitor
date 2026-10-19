@@ -61,15 +61,17 @@ test('time ticks are whole hours and observed zero values are retained', async (
 });
 test('hover shows timestamp and decimal sample rather than integer axis value', async () => {
   const get=page(async()=>({ok:true,json:async()=>({start:1,end:2,rows:[]})})); await tick();
-  const sample={getAttribute:()=> '120',dataset:{time:'1700000000',value:'20.876'}};
-  const svg={createSVGPoint:()=>({matrixTransform:()=>({x:120,y:80})}),getScreenCTM:()=>({inverse:()=>({})}),querySelectorAll:()=>[sample],dataset:{metric:'TPOT'}};
-  get('average-tooltip').style={};
-  get('average-tooltip').offsetWidth=200; get('average-tooltip').offsetHeight=30;
+  const sample={getAttribute:name=>name==='cx'?'120':'80',dataset:{time:'1700000000',value:'20.876'}};
+  let markup='',removed=false;
+  const svg={createSVGPoint:()=>({matrixTransform:()=>({x:120,y:80})}),getScreenCTM:()=>({inverse:()=>({})}),querySelectorAll:selector=>selector.startsWith('rect')?[]:[sample],dataset:{metric:'TPOT'},insertAdjacentHTML:(_,html)=>{markup=html;},querySelector:()=>({remove:()=>{removed=true;}})};
   get('average-rows').onpointermove({target:{closest:()=>svg},clientX:100,clientY:100});
-  assert.equal(get('average-tooltip').hidden,false);
-  assert.match(get('average-tooltip').textContent,/TPOT 20.88 ms/);
+  assert.match(markup,/statistics-crosshair/);
+  assert.match(markup,/20.88 ms/);
+  assert.match(markup,/M120 25V155 M82 80H510/);
+  assert.doesNotMatch(markup,/#233047/);
   get('average-rows').onpointerleave();
-  assert.equal(get('average-tooltip').hidden,true);
+  assert.equal(removed,true);
+
 });
 
 test('adjacent bucket means draw a smooth curve without visible scatter markers', async () => {

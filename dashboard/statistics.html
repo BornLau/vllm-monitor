@@ -27,7 +27,6 @@
 <div class="table-head"><div><h1>平均时延</h1><p>TPOT · TTFT · 曲线为分段平均时延，橙色虚线为所选范围均值</p></div><div class="actions"><label>平均值范围 <select id="average-window"><option value="6h">近 6 小时</option><option value="12h">近 12 小时</option><option value="24h" selected>近 24 小时</option><option value="48h">近 48 小时</option><option value="7d">近 7 天</option><option value="custom">自定义时间</option></select></label><button id="average-refresh">刷新平均值</button></div></div>
 <div id="average-custom" class="actions" hidden style="flex-wrap:wrap;margin-bottom:16px"><label>开始时间 <input id="average-start" type="datetime-local" required></label><label>结束时间 <input id="average-end" type="datetime-local" required></label><span style="color:var(--muted);font-size:12px">按本地时区，最长 30 天；选择后点击刷新平均值</span></div>
 <div id="average-error" class="notice" role="alert" hidden></div>
-<div id="average-tooltip" class="latency-tooltip" role="tooltip" hidden></div>
 <div id="average-rows" class="chart-grid" aria-live="polite">正在加载平均值…</div>
 <p id="average-status" role="status" style="font-size:12px;margin:12px 0">正在读取历史采样…</p>
 <details><summary>统计口径</summary><p>TPOT 为请求级每输出 Token 耗时，TTFT 为首 Token 延迟，单位均为毫秒。底层每 3 秒用最近两次采集间的耗时总量增量 ÷ 观测次数增量计算延迟，曲线上的点为各时间段内有效采样的均值（近 24 小时每 5 分钟一个点），不使用 P95 / P50，也不是逐请求原始记录。虚线为所选时间内每 3 秒有效采样的时间均值，不是请求加权均值。无新增观测、采集失败、过期或不完整的 sum/count 指标不计入均值，缺测处断线；有效零值保留。较长范围使用更宽的时间段聚合，末尾不足一个时间段单独统计；仅当整个空段采集正常且无新增时延观测、前后有效点相距不超过 30 分钟时，用实线插值连接并以灰底标注；插值不计入均值。其他缺测保持断线，虚线仍使用完整 3 秒采样计算。</p></details>
@@ -43,7 +42,7 @@ let data=null, serial=0, rangeStart=0, rangeEnd=0;
 let tooltipTarget=null;
 function hideBarTooltip(){
   if(tooltipTarget)tooltipTarget.removeAttribute('aria-describedby');
-  tooltipTarget=null;$('bar-tooltip').hidden=true;
+  tooltipTarget=null;$('bar-tooltip').hidden=true;hideStatisticsCrosshair();
 }
 function showBarTooltip(target,x,y){
   if(!target){hideBarTooltip();return;}
@@ -117,7 +116,11 @@ $('rows').onpointerdown=event=>{
   target.setPointerCapture(event.pointerId);target.focus({preventScroll:true});event.preventDefault();
 };
 $('rows').onpointermove=event=>{
-  if(!brushDrag){showBarTooltip(event.target.closest('[data-bar-tooltip]'),event.clientX,event.clientY);return;}
+  if(!brushDrag){
+    if(event.target.closest('svg[data-queue-chart]')){hideBarTooltip();showQueueCrosshair(event);}
+    else showBarTooltip(event.target.closest('[data-bar-tooltip]'),event.clientX,event.clientY);
+    return;
+  }
   if(event.pointerId!==brushDrag.pointer)return;
   const d=brushDrag,delta=Math.round((event.clientX-d.x)/d.width*data.dates.length);
   [rangeStart,rangeEnd]=brushRange(d.start,d.end,delta,d.part,data.dates.length);render(true);

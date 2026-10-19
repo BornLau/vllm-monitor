@@ -61,10 +61,10 @@ function dailyQueueChart(rows, dates, format, escape, chartWidth = 800) {
   dates.forEach((date,i)=>{if(i % Math.max(1,Math.ceil(dates.length/Math.max(1,(width-80)/90)))===0)svg+=`<text x="${x(i)}" y="${bottom+21}" text-anchor="middle" font-size="10" fill="#78869a">${date.slice(5)}</text>`;});
   points.forEach((values,j)=>{
     let path='',connected=false,circles='';
-    values.forEach((v,i)=>{if(v==null){connected=false;return;}const y=bottom-v/max*(bottom-top);path+=`${connected?'L':'M'}${x(i)} ${y} `;connected=true;circles+=`<circle tabindex="0" cx="${x(i)}" cy="${y}" r="3" fill="${colors[j%colors.length]}"><title>${escape(dates[i]+' · '+(rows[j].display_model||rows[j].model)+'：'+Number(v.toFixed(2))+' 个排队请求（日均）')}</title></circle>`;});
+    values.forEach((v,i)=>{if(v==null){connected=false;return;}const y=bottom-v/max*(bottom-top);path+=`${connected?'L':'M'}${x(i)} ${y} `;connected=true;circles+=`<circle tabindex="0" data-date="${escape(dates[i])}" data-model="${escape(rows[j].display_model||rows[j].model)}" data-value="${Number(v.toFixed(2))}" cx="${x(i)}" cy="${y}" r="3" fill="${colors[j%colors.length]}"><title>${escape(dates[i]+' · '+(rows[j].display_model||rows[j].model)+'：'+Number(v.toFixed(2))+' 个排队请求（日均）')}</title></circle>`;});
     svg+=`<path d="${path}" fill="none" stroke="${colors[j%colors.length]}" stroke-width="2"/>${circles}`;
   });
-  return `<section class="chart-card daily-card"><div class="chart-title"><h3>各模型排队趋势</h3><span>平均排队请求数 / 日</span></div><div class="legend">${rows.map((row,i)=>`<span title="${escape(row.project+' · '+row.node)}"><i style="background:${colors[i%colors.length]}"></i>${escape((row.display_model||row.model))}</span>`).join('')}</div><div class="daily-scroll"><svg role="img" aria-label="各模型每日平均排队请求数，缺失数据断开" viewBox="0 0 ${width} ${height}" style="width:100%;display:block">${svg}</svg></div></section>`;
+  return `<section class="chart-card daily-card"><div class="chart-title"><h3>各模型排队趋势</h3><span>平均排队请求数 / 日</span></div><div class="legend">${rows.map((row,i)=>`<span title="${escape(row.project+' · '+row.node)}"><i style="background:${colors[i%colors.length]}"></i>${escape((row.display_model||row.model))}</span>`).join('')}</div><div class="daily-scroll"><svg data-queue-chart data-right="${width-16}" data-step="${step}" role="img" aria-label="各模型每日平均排队请求数，缺失数据断开" viewBox="0 0 ${width} ${height}" style="width:100%;display:block">${svg}</svg></div></section>`;
 }
 
 // Inclusive day indices, with a fixed span when panning the selected window.
@@ -74,4 +74,37 @@ function brushRange(start, end, delta, part, count) {
   if(part==='end')return [start,clamp(end+delta,start,count-1)];
   const shift=clamp(delta,-start,count-1-end);
   return [start+shift,end+shift];
+}
+
+// Shared SVG crosshair for the statistics page's line charts.
+let statisticsCrosshair = null;
+function hideStatisticsCrosshair() {
+  if (statisticsCrosshair) statisticsCrosshair.remove();
+  statisticsCrosshair = null;
+}
+function showStatisticsCrosshair(svg, {x,y,left,right,top,bottom,time,value,series=''}) {
+  hideStatisticsCrosshair();
+  const escape = text => String(text).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const label = (text, px, py, width) => `<rect x="${px}" y="${py}" width="${width}" height="20" rx="2" fill="white" stroke="#cbd5e1"/><text x="${px+5}" y="${py+14}" style="fill:#425570;font-size:11px">${escape(text)}</text>`;
+  const timeWidth = Math.min(right-left, time.length*7+10), valueWidth = Math.min(right-left,value.length*7+10);
+  svg.insertAdjacentHTML('beforeend', `<g class="statistics-crosshair" aria-hidden="true" pointer-events="none"><path d="M${x} ${top}V${bottom} M${left} ${y}H${right}" fill="none" stroke="#8996aa" stroke-dasharray="3 3"/><circle cx="${x}" cy="${y}" r="3" fill="#527be9" stroke="white"/>${label(value,left,Math.max(top,Math.min(bottom-20,y-10)),valueWidth)}${label(time,Math.max(left,Math.min(right-timeWidth,x-timeWidth/2)),bottom+6,timeWidth)}${series?label(series,left,top,Math.min(right-left,Array.from(series).length*12+10)):''}</g>`);
+  statisticsCrosshair = svg.querySelector('.statistics-crosshair');
+}
+function showQueueCrosshair(event) {
+  const svg = event.target.closest('svg[data-queue-chart]');
+  hideStatisticsCrosshair();
+  if (!svg) return;
+  const point = svg.createSVGPoint(); point.x=event.clientX; point.y=event.clientY;
+  const matrix = svg.getScreenCTM(); if (!matrix) return;
+  const pos=point.matrixTransform(matrix.inverse()), right=Number(svg.dataset.right);
+  if(pos.x<64 || pos.x>right || pos.y<16 || pos.y>230)return;
+  let closest=null, distance=Infinity;
+  for(const sample of svg.querySelectorAll('circle[data-date]')) {
+    const dx=Math.abs(Number(sample.getAttribute('cx'))-pos.x);
+    // Pick a date first, then the nearest model at that date.
+    const score=dx*1000+Math.abs(Number(sample.getAttribute('cy'))-pos.y);
+    if(dx<=Number(svg.dataset.step)/2+1 && score<distance){closest=sample;distance=score;}
+  }
+  if(!closest)return;
+  showStatisticsCrosshair(svg,{x:Number(closest.getAttribute('cx')),y:Number(closest.getAttribute('cy')),left:64,right,top:16,bottom:230,time:closest.dataset.date,value:closest.dataset.value+' req',series:closest.dataset.model});
 }
