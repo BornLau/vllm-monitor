@@ -40,6 +40,23 @@ class StorageTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.store.save({'name': 'A', 'url': 'http://host', 'alias': alias})
 
+    def test_group_persists_can_be_cleared_and_does_not_change_node(self):
+        model = self.add()
+        node = self.store.snapshot()[1][0][0]['nodes'][0]
+        body = dict(name=model['name'], url=model['url'], version=model['version'], group=' 生产 ')
+        model = self.store.save(body, model['id'])
+        self.assertEqual(ModelStore(self.path).list_public()['models'][0]['group'], '生产')
+        self.assertEqual(self.store.snapshot()[1][0][0]['nodes'][0], node)
+        body['version'] = model['version']
+        del body['group']
+        model = self.store.save(body, model['id'])
+        self.assertEqual(model['group'], '生产')
+        body.update(version=model['version'], group='')
+        self.assertEqual(self.store.save(body, model['id'])['group'], '')
+        for group in (None, 123, 'x'*61, 'a\nb'):
+            with self.assertRaises(ValueError):
+                self.store.save(dict(name='A', url='http://host', group=group))
+
     def test_persistence_key_masking_and_permissions(self):
         model = self.add()
         reopened = ModelStore(self.path)

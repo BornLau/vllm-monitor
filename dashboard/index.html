@@ -20,7 +20,7 @@
     .toolbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:16px}.toolbar input,.toolbar select{font:14px system-ui;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:9px 12px}.toolbar input{width:280px;max-width:100%}.toolbar label{display:flex;gap:8px;align-items:center;color:var(--muted);font-size:12px}.result-count{margin-left:auto;color:var(--muted);font-size:12px}
     .models{display:grid;grid-template-columns:minmax(0,1fr);gap:14px}.model{border-radius:4px}.model-head{padding:12px 18px;flex-wrap:wrap;border-bottom:1px solid var(--line)}.model-icon{width:28px;height:28px;border-radius:4px;font-size:13px}.model-name h2{font-size:15px}.model-name span{display:block;font-size:11px;overflow-wrap:anywhere}.model-head .pill{font-size:11px}.model-head button{font-size:11px;padding:5px 9px}
     .model-main{display:grid;grid-template-columns:205px minmax(0,1fr)}.facts{padding:16px 18px;border-right:1px solid var(--line)}.fact-top{font:500 26px ui-monospace,monospace}.fact-top small{font:11px system-ui;color:var(--muted)}.fact-caption{font-size:10px;color:var(--muted);margin:5px 0 12px}.fact-line{display:flex;justify-content:space-between;font-size:11px;gap:8px;margin:7px 0;color:var(--muted)}.fact-line b{font:500 11px ui-monospace,monospace;color:var(--text)}.facts .meter{height:3px}
-    .trends{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line)}.trend-panel{background:var(--panel);padding:14px 14px 10px;min-width:0}.trend-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:10px}.trend-head label{color:#c4c8ce}.trend-head strong{font:500 12px ui-monospace,monospace;white-space:nowrap}.trend-head small{font-size:9px;color:var(--muted);margin-left:3px}.plot{height:100px;position:relative;margin-left:24px}.plot svg{display:block;width:100%;height:100%;overflow:hidden}.axis-max{position:absolute;right:100%;top:0;font:9px ui-monospace,monospace;color:#a1a9af;padding-right:5px}.axis-zero{position:absolute;right:100%;bottom:9%;font:9px ui-monospace,monospace;color:#a1a9af;padding-right:5px}.time-axis{display:flex;justify-content:space-between;font:9px ui-monospace,monospace;color:#a1a9af;margin:4px 0 0 24px}.chart-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:11px;pointer-events:none}.chart-line{stroke-opacity:.85}.chart-area{opacity:.055}
+    .trends{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line)}.trend-panel{background:var(--panel);padding:14px 14px 10px;min-width:0}.trend-head{display:flex;justify-content:space-between;gap:8px;font-size:12px;margin-bottom:10px}.trend-panel[data-metric="waiting"] .trend-head{flex-wrap:wrap}.trend-head label{color:#c4c8ce}.trend-head strong{font:500 12px ui-monospace,monospace;white-space:nowrap}.trend-head small{font-size:9px;color:var(--muted);margin-left:3px}.plot{height:100px;position:relative;margin-left:24px}.plot svg{display:block;width:100%;height:100%;overflow:hidden}.axis-max{position:absolute;right:100%;top:0;font:9px ui-monospace,monospace;color:#a1a9af;padding-right:5px}.axis-zero{position:absolute;right:100%;bottom:9%;font:9px ui-monospace,monospace;color:#a1a9af;padding-right:5px}.time-axis{display:flex;justify-content:space-between;font:9px ui-monospace,monospace;color:#a1a9af;margin:4px 0 0 24px}.chart-empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);font-size:11px;pointer-events:none}.chart-line{stroke-opacity:.85}.chart-area{opacity:.055}
 
     .motion-paused :is(.chart-line,.chart-area),.trend-panel:not([data-visible="true"]) :is(.chart-line,.chart-area){animation-play-state:paused}
     @media(prefers-reduced-motion:reduce){.chart-line,.chart-area{animation:none}.chart-area{opacity:.06}}
@@ -33,16 +33,17 @@
 <body>
 <div class="app-header"><div class="app-brand"><span class="brand-mark">v</span>vLLM <small>MONITOR</small></div><nav class="app-nav" aria-label="页面导航"><a href="/" class="active" aria-current="page">实时监控</a><a href="/stats" >数据统计</a></nav><div class="app-tools"><span id="mode" class="pill">实时监控</span><button id="setup">管理模型</button></div></div>
   <main>
-    <header><div><h1>模型服务</h1><p>模型运行状态与实时性能</p></div><div class="actions"><label>历史范围 <select id="window" aria-label="趋势时间范围"><option value="2">2 分钟</option><option value="15">15 分钟</option><option value="60">1 小时</option><option value="360">6 小时</option><option value="720">12 小时</option><option value="1440">24 小时</option></select></label><button id="pause" aria-pressed="false">暂停更新</button><button id="export">导出摘要</button><button id="refresh" class="primary">↻ 刷新</button></div></header>
+    <header class="sticky-controls"><div><h1>模型服务</h1><p>模型运行状态与实时性能</p></div><div class="actions"><label>历史范围 <select id="window" aria-label="趋势时间范围"><option value="2">2 分钟</option><option value="15">15 分钟</option><option value="60">1 小时</option><option value="360">6 小时</option><option value="720">12 小时</option><option value="1440">24 小时</option></select></label><button id="pause" aria-pressed="false">暂停更新</button><button id="export">导出摘要</button><button id="refresh" class="primary">↻ 刷新</button></div></header>
     <div id="error" class="notice" role="alert" hidden></div>
     <div id="overview" class="overview"><span class="muted">正在读取服务状态…</span></div>
+    <div id="model-groups" class="model-groups" role="tablist" aria-label="模型分组" hidden></div>
     <div class="toolbar" id="toolbar" hidden>
       <input id="search" type="search" placeholder="搜索模型名称或服务地址…" aria-label="搜索模型">
       <label>状态<select id="status-filter"><option value="all">全部状态</option><option value="attention">需关注</option><option value="online">API 在线</option><option value="unavailable">指标不可用</option></select></label>
       <label>排序<select id="sort"><option value="name" selected>模型名称</option><option value="attention">异常优先</option><option value="waiting">等待队列最多</option><option value="throughput">解码速度最高</option></select></label>
       <span class="result-count" id="result-count" role="status"></span>
     </div>
-    <section id="models" class="models" aria-label="模型服务列表"></section>
+    <section id="models" class="models" role="tabpanel" aria-label="模型服务列表"></section>
     <footer><span id="history-status" role="status"></span><span id="updated">正在连接…</span><span>解码速度 = 1 / 请求级 TPOT P95（排除首 Token 时间）· 基于最近两次采样间完成的请求</span></footer>
   </main>
   <dialog id="guide">
@@ -55,6 +56,7 @@
         <h3 id="form-title">添加模型</h3>
         <label>模型名称<input id="model-name" name="name" required maxlength="100" placeholder="例如 GLM-5.3-Flash"></label>
         <label>显示别名（选填）<input id="model-alias" name="alias" maxlength="100" placeholder="例如 主力推理模型"><small>用于实时监控和统计图表；留空使用原名称，不影响采集。</small></label>
+        <label>分组（选填）<input id="model-group" name="group" maxlength="60" list="model-group-options" placeholder="例如 生产环境、测试环境"><datalist id="model-group-options"></datalist><small>相同分组显示在同一标签下；留空归入“未分组”。</small></label>
         <label>服务 URL<input id="model-url" name="url" type="url" required maxlength="2048" placeholder="http://你的服务器:8080"><small>带不带 /v1 都可以，自动尝试同端口 /metrics。</small></label>
         <label>API Key<input id="model-key" name="api_key" type="password" maxlength="4096" autocomplete="new-password" placeholder="无需认证可留空"><small id="key-help">只保存在服务端，保存后不回显。</small></label>
         <label id="clear-key-label" hidden><input id="clear-key" type="checkbox">清除原 Key，改为无认证</label>
@@ -97,7 +99,7 @@
       const extras=[['输入吞吐',v.input_tps,'tok/s'],['请求级 TPOT P95',v.tpot==null?null:v.tpot*1000,'ms'],['请求耗时 P50',v.e2e,'s'],['前缀缓存命中',v.cache,'%'],['输入长度 P50',v.prompt,'tokens'],['近 1 小时抢占',v.preempt,'次']];
       return `<article class="model" data-model-key="${esc(key)}"><div class="model-head"><span class="model-icon">${esc((p.alias||p.name||p.id).slice(0,1))}</span><div class="model-name"><h2>${esc(p.alias||p.name||p.id)}${p.nodes.length>1?' · '+esc(n.name||n.id):''}</h2><span>${esc(n.api_base_url||n.metrics_url)}</span></div><span class="pill ${level}" title="${esc(apiNote)}"><i class="dot"></i>${label}</span><button class="quiet" data-edit="${esc(p.id)}">编辑配置</button></div>
       <div class="model-main"><div class="facts"><div class="output-speed-label">解码速度</div><div class="fact-top">${fmt(v.output_tps)} <small>tok/s</small></div><div class="fact-caption" title="1 / 请求级 TPOT P95；TPOT =（请求总耗时 − 首 Token 时间）/（输出 Token 数 − 1）；无有效完成请求或指标缺失时显示 —">${n.activity==='idle'?'空闲 · 已排除':n.activity==='unknown'?'活动状态未知':'1 / TPOT P95 · 单请求'}</div><div class="input-speed-row">${fact('输入速度',v.input_tps,' tok/s')}</div><div class="fact-line"><span>运行 / 等待</span><b>${fmt(v.running)} / ${fmt(v.waiting)}</b></div>${fact('前缀缓存命中',v.cache,'%')}${fact('KV Cache',v.kv,'%')}<div class="meter"><i style="width:${Math.min(100,Math.max(0,v.kv||0))}%;background:${v.kv>=90?'var(--amber)':'var(--green)'}"></i></div></div>
-      <div class="trends">${MonitorCharts.metrics.map(([metric,title,unit,color])=>`<div class="trend-panel" data-key="${esc(key)}" data-metric="${metric}"><div class="trend-head"><label title="${metric==='ttft'?'空闲段以零基线连接，不代表实测延迟为零；无新增观测时虚线仅供末值参考':''}">${title}</label><strong>${fmt(v[metric])}<small>${v[metric]==null?'':unit}</small></strong></div><div class="plot" data-chart-plot><span class="axis-max"></span><span class="axis-zero">0</span><svg viewBox="0 0 200 100" preserveAspectRatio="none" role="img" aria-label="${esc(title+'，'+(p.alias||p.name||p.id))}" data-chart><path d="M0 10H200 M0 50H200 M0 90H200 M50 0V90 M100 0V90 M150 0V90" stroke="#383e43" stroke-width=".6" vector-effect="non-scaling-stroke"/><path class="chart-area" fill="${color}"/><path class="chart-reference" stroke="${color}" stroke-width="1.3" stroke-dasharray="4 4" fill="none" vector-effect="non-scaling-stroke"><title>虚线为缺测连接或末值参考，不代表实测数据</title></path><path class="chart-line" stroke="${color}" stroke-width="1.3" fill="none" vector-effect="non-scaling-stroke"/></svg><span class="chart-empty">正在积累采样…</span></div><div class="time-axis"><span class="axis-start"></span><span class="axis-end"></span></div></div>`).join('')}</div></div>
+      <div class="trends">${MonitorCharts.metrics.map(([metric,title,unit,color])=>`<div class="trend-panel" data-key="${esc(key)}" data-metric="${metric}"><div class="trend-head"><label title="${metric==='ttft'?'空闲段以零基线连接，不代表实测延迟为零；无新增观测时虚线仅供末值参考':''}">${title}</label>${metric==='waiting'?`<strong><span style="color:#16a6a1">运行 ${fmt(v.running)}</span> / <span style="color:#b47b23">排队 ${fmt(v.waiting)}</span><small>req</small></strong>`:`<strong>${fmt(v[metric])}<small>${v[metric]==null?'':unit}</small></strong>`}</div><div class="plot" data-chart-plot><span class="axis-max"></span><span class="axis-zero">0</span><svg viewBox="0 0 200 100" preserveAspectRatio="none" role="img" aria-label="${esc(title+'，'+(p.alias||p.name||p.id))}" data-chart><path d="M0 10H200 M0 50H200 M0 90H200 M50 0V90 M100 0V90 M150 0V90" stroke="#383e43" stroke-width=".6" vector-effect="non-scaling-stroke"/><path class="chart-area" fill="${color}"/><path class="chart-reference" stroke="${color}" stroke-width="1.3" stroke-dasharray="4 4" fill="none" vector-effect="non-scaling-stroke"><title>虚线为缺测连接或末值参考，不代表实测数据</title></path><path class="chart-line" stroke="${color}" stroke-width="1.3" fill="none" vector-effect="non-scaling-stroke"/>${metric==='waiting'?'<path class="chart-running-reference" stroke="#16a6a1" stroke-width="1.3" stroke-dasharray="4 4" fill="none" vector-effect="non-scaling-stroke"/><path class="chart-running-line" stroke="#16a6a1" stroke-width="1.3" fill="none" vector-effect="non-scaling-stroke"/>':''}</svg><span class="chart-empty">正在积累采样…</span></div><div class="time-axis"><span class="axis-start"></span><span class="axis-end"></span></div></div>`).join('')}</div></div>
       <div class="model-foot"><span class="${state==='unavailable'?'muted':finding[0]}">${esc(finding[1])}</span><span>${esc(apiNote)}</span></div><details class="diagnostics" data-key="${esc(key)}" ${expanded.has(key)?'open':''}><summary>更多指标与诊断</summary><div class="extra">${extras.map(([title,value,unit])=>`<div>${title}<strong>${fmt(value)} ${value==null?'':unit}</strong></div>`).join('')}</div>${n.findings.map(([level,title,advice])=>`<div class="finding ${level}"><h3>${esc(title)}</h3><p>${esc(advice)}</p></div>`).join('')}</details></article>`;
     }
     // Reconcile keyed models so refreshes and sorting preserve SVG and animation nodes.
@@ -123,11 +125,32 @@
       for(const child of Array.from(host.children))if(!keep.has(child))child.remove();
       MonitorCharts.observe();
     }
+    let selectedGroup = null;
+    const groupOf = project => (project.group || '').trim();
+    function renderGroups() {
+      const counts = new Map();
+      for (const project of data.projects) counts.set(groupOf(project), (counts.get(groupOf(project)) || 0) + 1);
+      if (selectedGroup !== null && !counts.has(selectedGroup)) selectedGroup = null;
+      const groups = [null, ...[...counts.keys()].sort((a,b)=>a===''?1:b===''?-1:a.localeCompare(b,'zh-CN',{numeric:true}))];
+      const html = groups.map((group,i)=>`<button type="button" role="tab" id="model-group-tab-${i}" aria-controls="models" aria-selected="${group===selectedGroup}" tabindex="${group===selectedGroup?0:-1}" data-group-index="${i}">${esc(group===null?'全部':group||'未分组')} <span>${group===null?data.projects.length:counts.get(group)}</span></button>`).join('');
+      const host = $('model-groups');
+      host.hidden = !data.projects.length;
+      if (host.innerHTML !== html) host.innerHTML = html;
+      $('models').setAttribute('aria-labelledby', `model-group-tab-${groups.indexOf(selectedGroup)}`);
+      const select = index => {selectedGroup=groups[index];renderModels();host.querySelector('[aria-selected="true"]').focus();};
+      host.onclick = event => {const button=event.target.closest('[data-group-index]');if(button)select(Number(button.dataset.groupIndex));};
+      host.onkeydown = event => {
+        const index = groups.indexOf(selectedGroup);
+        const next = event.key==='ArrowRight'?(index+1)%groups.length:event.key==='ArrowLeft'?(index+groups.length-1)%groups.length:event.key==='Home'?0:event.key==='End'?groups.length-1:null;
+        if(next!==null){event.preventDefault();select(next);}
+      };
+    }
     function renderModels() {
       if (!data) return;
       const entries = data.projects.flatMap(p => p.nodes.map(n => [p,n]));
+      renderGroups();
       const query = $('search').value.trim().toLocaleLowerCase(), filter = $('status-filter').value;
-      const visible = entries.filter(([p,n]) => [p.alias,p.name,p.id,n.name,n.api_base_url,n.metrics_url].join(' ').toLocaleLowerCase().includes(query) &&
+      const visible = entries.filter(([p,n]) => (selectedGroup===null || groupOf(p)===selectedGroup) && [p.alias,p.name,p.id,n.name,n.api_base_url,n.metrics_url].join(' ').toLocaleLowerCase().includes(query) &&
         (filter === 'all' || filter === 'attention' && needsAttention(n) || filter === 'online' && n.api.state === 'ok' || filter === 'unavailable' && performanceState(n) === 'unavailable'));
       visible.sort(([a,x],[b,y]) => {
         if ($('sort').value === 'name') return (a.alias || a.name || a.id).localeCompare(b.alias || b.name || b.id,'zh-CN',{numeric:true})
@@ -205,6 +228,7 @@
       $('model-form').reset();
       $('model-name').value = model?.name || '';
       $('model-alias').value = model?.alias || '';
+      $('model-group').value = model?.group || '';
       $('model-url').value = model?.url || '';
       $('model-key').value = '';
       $('model-key').disabled = false;
@@ -221,6 +245,7 @@
       const body = await r.json();
       if (!r.ok) throw Error(body.error || '读取配置失败');
       config = body;
+      $('model-group-options').innerHTML = [...new Set(config.models.map(m=>m.group).filter(Boolean))].sort().map(group=>`<option value="${esc(group)}"></option>`).join('');
       $('config-models').innerHTML = config.models.length ? config.models.map(m => `<div class="config-item"><strong>${esc(m.alias||m.name)}</strong><small>${esc(m.url)} · ${m.has_api_key ? 'Key 已配置' : '无 API Key'}</small><div class="actions">${m.editable ? `<button type="button" data-config-edit="${esc(m.id)}">编辑</button>` : '<small>旧版复杂配置</small>'}<button type="button" class="danger" data-config-delete="${esc(m.id)}">移除</button></div></div>`).join('') : '<p class="muted" style="font-size:14px">还没有真实模型。填写模型信息即可接入。</p>';
     }
     async function openConfig(id = null) {
@@ -255,7 +280,7 @@
       if (saving || !config) return;
       setSaving(true); configError(); $('config-message').textContent = '正在保存…';
       try {
-        const body = {name:$('model-name').value, alias:$('model-alias').value, url:$('model-url').value, api_key:$('model-key').value, clear_key:$('clear-key').checked};
+        const body = {name:$('model-name').value, alias:$('model-alias').value, group:$('model-group').value, url:$('model-url').value, api_key:$('model-key').value, clear_key:$('clear-key').checked};
         if (editing) body.version = editing.version;
         await writeConfig(editing ? 'PUT' : 'POST', '/api/models' + (editing ? '/' + encodeURIComponent(editing.id) : ''), body);
         $('model-key').value = '';
@@ -304,7 +329,7 @@
     }, true);
     $('models').addEventListener('click', event => {
       if (event.target.closest('[data-clear-filters]')) {
-        $('search').value = ''; $('status-filter').value = 'all'; renderModels();
+        selectedGroup = null; $('search').value = ''; $('status-filter').value = 'all'; renderModels();
       }
     });
     $('refresh').onclick = load;

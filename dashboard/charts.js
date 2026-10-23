@@ -5,9 +5,10 @@
   const metrics = [
     ['output_tps', '解码速度', 'tok/s', '#527be9'],
     ['ttft', '首字延迟 P50', 's', '#16a6a1'],
-    ['waiting', '等待队列', 'req', '#d4a148'],
+    ['waiting', '运行 / 排队', 'req', '#d4a148'],
     ['kv', 'KV Cache', '%', '#527be9']
   ];
+  const trackedMetrics = [...metrics, ['running', '运行', 'req', '#16a6a1']];
   // Polling is scheduled after the previous request completes. The backend may
   // legitimately spend up to five seconds querying an upstream, so a healthy
   // three-second refresh can produce samples more than 7.5 seconds apart.
@@ -29,7 +30,7 @@
         entry.samples = entry.samples.filter(sample => sample.time >= cutoff).slice(-28801);
         entry.historyStep = payload.step_ms;
         entry.maxima = {};
-        for (const sample of entry.samples) for (const [name] of metrics)
+        for (const sample of entry.samples) for (const [name] of trackedMetrics)
           if (finite(sample.values[name])) entry.maxima[name] = Math.max(entry.maxima[name] || 1, sample.values[name]*1.2);
         this.entries.set(key, entry);
       }
@@ -40,9 +41,9 @@
         const key = keyOf(project, node); active.add(key);
         const entry = this.entries.get(key) || {samples: [], maxima: {}};
         if (!entry.samples.length || time > entry.samples.at(-1).time) {
-          const values = Object.fromEntries(metrics.map(([name]) => {
+          const values = Object.fromEntries(trackedMetrics.map(([name]) => {
             if (node.values.up !== 1) return [name, null];
-            if (name === 'waiting' || name === 'kv')
+            if (name === 'waiting' || name === 'running' || name === 'kv')
               return [name, finite(node.values[name]) ? node.values[name] : null];
             // Idle latency uses the baseline as a visual convention, not a
             // measured zero-second observation. Unknown intervals stay missing.
@@ -51,7 +52,7 @@
           }));
           entry.samples.push({time, values, live: true});
           while (entry.samples.length > 28801 || (entry.samples.length && entry.samples[0].time < time - 86400000)) entry.samples.shift();
-          for (const [name] of metrics) if (finite(values[name])) entry.maxima[name] = Math.max(entry.maxima[name] || 1, values[name] * 1.2);
+          for (const [name] of trackedMetrics) if (finite(values[name])) entry.maxima[name] = Math.max(entry.maxima[name] || 1, values[name] * 1.2);
         }
         this.entries.set(key, entry);
       }
@@ -143,6 +144,12 @@
   const api = {History, geometry, gapLimit, keyOf, metrics, nearestSample};
   if (typeof module !== 'undefined') module.exports = api;
   if (!root.document) return;
+  const appHeader = document.querySelector('.app-header');
+  if (appHeader) {
+    const updateHeaderHeight = () => document.documentElement.style.setProperty('--app-header-height', `${appHeader.getBoundingClientRect().height}px`);
+    updateHeaderHeight();
+    new ResizeObserver(updateHeaderHeight).observe(appHeader);
+  }
   const history = new History(); let windowMs = 900000, interval = 3000, paused = false, frozen = null, latest = null, frame = null, lastDraw = 0;
   const reduced = matchMedia('(prefers-reduced-motion: reduce)');
   const visible = new Set();
@@ -168,16 +175,27 @@
     const time = state.start + ratio*(state.end-state.start);
     const sample = nearestSample(state.samples, time, state.start, state.end, state.gap);
     const value = sample?.values[state.metric];
+    const running = sample?.values.running;
+    const dual = state.metric === 'waiting';
     const [,,unit,color] = metrics.find(([name]) => name === state.metric);
     const marker = panel.querySelector('.chart-hover');
     if (!marker) {hideHover(); return;}
-    marker.hidden = !finite(value);
-    if (!finite(value)) return;
+    marker.hidden = !finite(value) && !(dual && finite(running));
+    if (marker.hidden) return;
     const x = (sample.time-state.start)/(state.end-state.start)*100;
     marker.style.setProperty('--point-x', `${x}%`);
-    marker.style.setProperty('--point-y', `${90-Math.max(0,value)/state.max*80}%`);
+    marker.style.setProperty('--point-y', `${90-Math.max(0,finite(value)?value:running)/state.max*80}%`);
     marker.style.color = color;
-    marker.querySelector('.chart-hover-value').textContent = `${value.toLocaleString('zh-CN',{maximumFractionDigits:2})} ${unit}`;
+    for (const selector of ['.chart-hover-horizontal','.chart-hover-dot','.chart-hover-value']) marker.querySelector(selector).style.visibility = finite(value) ? '' : 'hidden';
+    marker.querySelector('.chart-hover-value').textContent = `${dual?'排队 ':''}${finite(value)?value.toLocaleString('zh-CN',{maximumFractionDigits:2}):'—'} ${unit}`;
+    const second = marker.querySelector('.chart-hover-running');
+    if (second) {
+      second.hidden = !finite(running);
+      second.style.setProperty('--point-y', `${90-Math.max(0,running)/state.max*80}%`);
+      second.querySelector('.chart-hover-value').textContent = `运行 ${running?.toLocaleString('zh-CN',{maximumFractionDigits:2})} req`;
+      // Separate labels when both series meet, while dots stay on the actual values.
+      second.querySelector('.chart-hover-value').style.transform = finite(value) && Math.abs(running-value)/state.max*rect.height*.8<24 ? 'translateY(-110%)' : 'translateY(-50%)';
+    }
     const timeLabel = marker.querySelector('.chart-hover-time');
     timeLabel.textContent = new Date(sample.time).toLocaleTimeString('zh-CN',{hour12:false});
     // Keep the time label inside the plot even at the first and last sample.
@@ -189,6 +207,7 @@
     marker.hidden = true;
     marker.setAttribute('aria-hidden', 'true');
     marker.innerHTML = '<span class="chart-hover-vertical"></span><span class="chart-hover-horizontal"></span><span class="chart-hover-dot"></span><span class="chart-hover-value"></span><span class="chart-hover-time"></span>';
+    if (panel.dataset.metric === 'waiting') marker.insertAdjacentHTML('beforeend', '<span class="chart-hover-running" style="position:absolute;inset:0;color:#16a6a1"><span class="chart-hover-horizontal"></span><span class="chart-hover-dot"></span><span class="chart-hover-value"></span></span>');
     plot.append(marker);
     plot.addEventListener('pointermove', event => {
       if (hovered?.panel !== panel) hideHover();
@@ -219,14 +238,21 @@
     if (!end) return;
     for (const panel of visible) {
       const entry = history.entries.get(panel.dataset.key), metric = panel.dataset.metric;
-      const max = metric === 'kv' ? Math.max(100,entry?.maxima.kv || 100) : entry?.maxima[metric] || 1;
+      const max = metric === 'kv' ? Math.max(100,entry?.maxima.kv || 100) : Math.max(entry?.maxima[metric] || 1, metric === 'waiting' ? entry?.maxima.running || 1 : 1);
       const samples = entry?.samples || [], gap = Math.max(gapLimit(interval), (entry?.historyStep || 0) * 1.5);
       chartState.set(panel, {samples, metric, start:end-windowMs, end, max, gap});
       const paths = geometry(samples, metric, end-windowMs, end, max, gap);
       panel.querySelector('.chart-line').setAttribute('d', paths.line);
       panel.querySelector('.chart-area').setAttribute('d', paths.area);
       panel.querySelector('.chart-reference').setAttribute('d', paths.reference);
-      panel.querySelector('.chart-empty').hidden = paths.count >= 1;
+      let count = paths.count;
+      if (metric === 'waiting') {
+        const running = geometry(samples, 'running', end-windowMs, end, max, gap);
+        panel.querySelector('.chart-running-line').setAttribute('d', running.line);
+        panel.querySelector('.chart-running-reference').setAttribute('d', running.reference);
+        count += running.count;
+      }
+      panel.querySelector('.chart-empty').hidden = count >= 1;
       panel.querySelector('.chart-empty').textContent = paths.count ? '正在积累采样…' : '暂无有效采样';
       panel.querySelector('.axis-max').textContent = max.toLocaleString('zh-CN',{maximumFractionDigits:1});
       const format = time => new Date(time).toLocaleTimeString('zh-CN',{hour12:false});

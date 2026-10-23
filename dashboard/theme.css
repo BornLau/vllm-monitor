@@ -73,3 +73,16 @@ body,button,input,select,.toolbar input,.toolbar select,.actions select,.config-
 .chart-hover-value{left:0;top:var(--point-y);transform:translateY(-50%)}
 .chart-hover-time{top:100%;margin-top:4px}
 .chart-hover[hidden]{display:none}
+
+/* Titles and range controls stay below navigation within their own section. */
+.sticky-controls{position:sticky;top:var(--app-header-height,68px);z-index:90;background:var(--bg);padding:12px 0;border-bottom:1px solid var(--line);box-shadow:0 5px 8px -8px #26364d66}
+.sticky-controls>.table-head{margin-bottom:0}
+.sticky-controls #average-custom:not([hidden]){margin-top:12px}
+
+.model-groups{display:flex;gap:8px;overflow-x:auto;padding:0 0 10px;margin-bottom:10px;border-bottom:1px solid var(--line)}
+.model-groups[hidden]{display:none}
+.model-groups button{flex:none;white-space:nowrap;border:1px solid var(--line);border-radius:7px;background:white;color:var(--muted);padding:8px 14px}
+.model-groups button[aria-selected="true"]{background:#edf2ff;border-color:#527be9;color:#315fce;font-weight:600}
+.model-groups button span{margin-left:6px;font-variant-numeric:tabular-nums;opacity:.8}
+.model-groups button:focus-visible{outline:2px solid #527be9;outline-offset:2px}
+@media(max-width:700px){header.sticky-controls>div:first-child{flex:0 1 auto}header.sticky-controls{gap:12px}}

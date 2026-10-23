@@ -37,3 +37,25 @@ test('snapshot patch preserves the chart-owned plot and hover overlay',()=>{
  Object.defineProperty(context.oldPlot,'attributes',{get(){throw Error('chart plot must not be patched');}});
  vm.runInContext('patchNode(oldPlot,freshPlot)',context);
 });
+
+test('group tabs include all and ungrouped, combine filters, and recover after group removal',()=>{
+ const elements=new Map();
+ const get=id=>{if(!elements.has(id))elements.set(id,{value:id==='status-filter'?'all':id==='sort'?'name':'',innerHTML:'',setAttribute(){},querySelector:()=>({focus(){}})});return elements.get(id);};
+ const ctx=vm.createContext({MonitorCharts:{...require('../dashboard/charts.js'),observe(){}},document:{getElementById:get}});
+ vm.runInContext("const $=id=>document.getElementById(id);"+js.slice(js.indexOf('    const esc'),js.indexOf('    function render()')),ctx);
+ ctx.fixture={projects:[{id:'a',name:'A',group:'生产',nodes:[{id:'n',api:{state:'ok'}}]},{id:'b',name:'B',group:'测试',nodes:[{id:'n',api:{state:'error'}}]},{id:'c',name:'C',nodes:[{id:'n',api:{state:'ok'}}]}]};
+ vm.runInContext('data=fixture;showRows=rows=>globalThis.shown=rows;renderModels()',ctx);
+ assert.equal(ctx.shown.length,3);
+ assert.match(get('model-groups').innerHTML,/全部/);
+ assert.match(get('model-groups').innerHTML,/未分组/);
+ vm.runInContext("selectedGroup='生产';renderModels()",ctx);
+ assert.equal(ctx.shown.length,1);assert.equal(ctx.shown[0][0].id,'a');
+ get('search').value='B';vm.runInContext('renderModels()',ctx);
+ assert.match(get('models').innerHTML,/没有匹配/);
+ get('search').value='';vm.runInContext("selectedGroup=null;renderModels()",ctx);
+ get('status-filter').value='online';vm.runInContext('renderModels()',ctx);
+ assert.equal(ctx.shown.length,2);
+ vm.runInContext("selectedGroup='生产';data.projects=data.projects.filter(p=>p.id!=='a');renderModels()",ctx);
+ assert.equal(vm.runInContext('selectedGroup',ctx),null);
+ assert.equal(ctx.shown[0][0].id,'c');
+});

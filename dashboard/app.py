@@ -150,6 +150,10 @@ def load_config(path=CONFIG_PATH):
         if not isinstance(pid, str) or not re.fullmatch(r"[a-zA-Z0-9_-]+", pid) or pid in seen:
             raise ValueError("项目 id 必须唯一且只含字母、数字、下划线或连字符")
         seen.add(pid)
+        group = project.get("group", "")
+        if not isinstance(group, str) or len(group.strip()) > 60 or any(ord(c) < 32 for c in group):
+            raise ValueError(f"{pid}: 分组名称最多 60 个字符，不能包含控制字符")
+        project["group"] = group.strip()
         if project.get("deployment") not in ("standard", "pd"):
             raise ValueError(f"{pid}: deployment 必须是 standard 或 pd")
         if not project.get("nodes"):
@@ -539,7 +543,7 @@ def warm_statistics(stop):
         stop.wait(60)
 
 
-HISTORY_METRICS = ("output_tps", "ttft", "waiting", "kv")
+HISTORY_METRICS = ("output_tps", "ttft", "waiting", "kv", "running")
 HISTORY_WINDOWS = (2, 15, 60, 360, 720, 1440)
 
 
@@ -635,7 +639,7 @@ def collect(projects):
                 errors[name] = safe_error(exc)
         result = []
         for project in projects:
-            item = {key: project.get(key, "") for key in ("id", "name", "alias", "deployment", "environment")}
+            item = {key: project.get(key, "") for key in ("id", "name", "alias", "group", "deployment", "environment")}
             item["nodes"] = []
             for node in project["nodes"]:
                 identity = (project["id"], node["id"])

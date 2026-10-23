@@ -56,18 +56,18 @@ test('persisted history merges in time order without overwriting live samples or
 });
 
 test('idle curves stay continuous, gauges survive unknown activity, failures stay missing',()=>{
- const history=new History(),n=node({output_tps:12,ttft:2,waiting:0,kv:30});
+ const history=new History(),n=node({output_tps:12,ttft:2,waiting:0,kv:30,running:null});
  history.record(snapshot(n),3000);
  n.activity='idle';n.values.output_tps=null;n.values.ttft=null;
  history.record(snapshot(n),6000);
  n.activity='active';n.values.output_tps=15;n.values.ttft=3;
  history.record(snapshot(n),9000);
  const samples=history.entries.get(keyOf({id:'p'},n)).samples;
- assert.deepEqual(samples[1].values,{output_tps:0,ttft:0,waiting:0,kv:30});
+ assert.deepEqual(samples[1].values,{output_tps:0,ttft:0,waiting:0,kv:30,running:null});
  for(const metric of ['output_tps','ttft','waiting','kv'])
    assert.equal((geometry(samples,metric,0,10000,100,12000).line.match(/M/g)||[]).length,1);
  n.activity='unknown';history.record(snapshot(n),12000);
- assert.deepEqual(samples[3].values,{output_tps:null,ttft:null,waiting:0,kv:30});
+ assert.deepEqual(samples[3].values,{output_tps:null,ttft:null,waiting:0,kv:30,running:null});
  n.activity='idle';n.values.up=0;history.record(snapshot(n),15000);
  assert.ok(Object.values(samples[4].values).every(v=>v===null));
  n.values.up=1;n.values.kv=null;history.record(snapshot(n),18000);
@@ -75,7 +75,7 @@ test('idle curves stay continuous, gauges survive unknown activity, failures sta
 });
 
 test('offset historical nulls cannot split healthy live samples',()=>{
- const history=new History(),n=node({output_tps:20,ttft:1,waiting:0,kv:30});
+ const history=new History(),n=node({output_tps:20,ttft:1,waiting:0,kv:30,running:null});
  history.record(snapshot(n),4100);history.record(snapshot(n),7100);history.record(snapshot(n),10100);
  history.merge({step_ms:3000,entries:[{project_id:'p',node:n,samples:[1000,4000,7000,10000].map(time=>({time,values:{output_tps:time===1000?10:null}}))}]});
  const points=history.entries.get(keyOf({id:'p'},n)).samples;
@@ -146,3 +146,17 @@ test('hover selects the nearest visible sample without skipping missing values o
  assert.equal(nearestSample(points,0,1000,2000,12000),null);
  assert.equal(nearestSample([],500,0,30000,12000),null);
 });
+
+ test('running history retains gauge values and gaps independently of waiting',()=>{
+ const history=new History(),n=node({running:24,waiting:0});
+ history.record(snapshot(n),3000);
+ n.activity='idle';n.values.running=0;n.values.waiting=3;
+ history.record(snapshot(n),6000);
+ n.values.running=null;
+ history.record(snapshot(n),9000);
+ const entry=history.entries.get(keyOf({id:'p'},n));
+ assert.deepEqual(entry.samples.map(s=>s.values.running),[24,0,null]);
+ assert.deepEqual(entry.samples.map(s=>s.values.waiting),[0,3,3]);
+ assert.ok(entry.maxima.running>=24);
+ assert.equal(geometry(entry.samples,'running',3000,9000,30,12000).count,2);
+ });
