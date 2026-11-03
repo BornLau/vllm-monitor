@@ -95,6 +95,7 @@ def queries():
         "cache": f'100 * {instant_rate("prefix_cache_hits_total")} / {instant_rate("prefix_cache_queries_total")}',
         "preempt": f'sum by ({GROUP}) (increase({metric("num_preemptions_total")}[1h]))',
         "input_tps": instant_rate("prompt_tokens_total"),
+        "generation_tps": instant_rate("generation_tokens_total"),
         "output_tps": decode_speed(request_tpot()),
     }
 
@@ -103,7 +104,7 @@ def queries():
     signals = [expressions[name] for name in ("running", "waiting", "input_tps")]
     # Activity must still detect decoding before a request completes, and must
     # not depend on whether this engine exposes the request TPOT histogram.
-    signals.append(instant_rate("generation_tokens_total"))
+    signals.append(expressions["generation_tps"])
     signals += [instant_rate(name + "_count") for name in
                 ("e2e_request_latency_seconds", "time_to_first_token_seconds")]
     active = " or ".join(f"({expr} > 0)" for expr in signals)

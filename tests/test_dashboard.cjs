@@ -30,6 +30,19 @@ test('decode speed identifies request TPOT P95 and excludes TTFT',()=>{
  assert.doesNotMatch(markup,/Token 间隔 P50|当前输出吞吐/);
 });
 
+test('total output speed appears below input and remains separate from TPOT speed',()=>{
+ row('HTTP 404');
+ context.n.values.generation_tps=1234;
+ let markup=vm.runInContext('modelRow(p,n)',context);
+ assert.match(markup,/输出速度<\/span><b>1,234 tok\/s/);
+ assert.ok(markup.indexOf('输入速度')<markup.indexOf('输出速度'));
+ assert.ok(markup.indexOf('输出速度')<markup.indexOf('运行 \/ 等待'));
+ context.n.values.generation_tps=0;
+ assert.match(vm.runInContext('modelRow(p,n)',context),/输出速度<\/span><b>0 tok\/s/);
+ context.n.values.generation_tps=null;
+ assert.match(vm.runInContext('modelRow(p,n)',context),/输出速度<\/span><b>—<\/b>/);
+});
+
 test('snapshot patch preserves the chart-owned plot and hover overlay',()=>{
  context.oldPlot={nodeType:1,tagName:'DIV',hasAttribute:name=>name==='data-chart-plot'};
  context.freshPlot={nodeType:1,tagName:'DIV'};

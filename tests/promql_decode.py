@@ -43,7 +43,13 @@ tests = [
     case("concurrency does not multiply per-request speed", histogram(multiplier=2), [check(speed, 25)]),
     case("missing TPOT does not fall back to token throughput; activity remains valid", [
         {"series": f'vllm:generation_tokens_total{{job="vllm",{LABELS}}}', "values": "0 300"}], [
-            check(speed, None), check(app.QUERIES["activity"], 1)]),
+            check(speed, None), check(app.QUERIES["activity"], 1),
+            check(app.QUERIES["generation_tps"], 100)]),
+    case("total throughput sums per-series rates after resets and preserves idle zero", [
+        {"series": f'vllm:generation_tokens_total{{job="vllm",{LABELS},worker="0"}}', "values": "900 300 300"},
+        {"series": f'vllm:generation_tokens_total{{job="vllm",{LABELS},worker="1"}}', "values": "0 600 600"}], [
+            check(app.QUERIES["generation_tps"], 300),
+            check(app.QUERIES["generation_tps"], 0, "6s")]),
     case("zero TPOT does not divide by zero", [
         {"series": f'vllm:request_time_per_output_token_seconds_bucket{{job="vllm",{MODEL},le="{le}"}}',
          "values": "0 100"} for le in ("0", "+Inf")], [check(speed, None)]),

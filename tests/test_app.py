@@ -136,6 +136,7 @@ class MonitorTests(unittest.TestCase):
             data = app.collect([project(), project("two")])
         self.assertEqual(data["projects"][0]["nodes"][0]["values"]["running"], 7)
         self.assertIsNone(data["projects"][1]["nodes"][0]["values"]["running"])
+        self.assertIsNone(data["projects"][1]["nodes"][0]["values"]["generation_tps"])
         self.assertNotIn("api_key_env", json.dumps(data))
 
     def test_activity_filter_preserves_short_requests_and_live_gauges(self):
@@ -154,6 +155,18 @@ class MonitorTests(unittest.TestCase):
                 self.assertEqual(node["values"]["kv"], 25)
                 self.assertEqual(node["values"]["preempt"], 2)
                 self.assertEqual(node["values"]["output_tps"], 50 if activity == 1 else None)
+                self.assertEqual(node["values"]["generation_tps"], 0)
+
+    def test_total_output_is_available_without_completed_request_tpot(self):
+        for throughput in (100, None):
+            def query(expr):
+                value = 1 if expr == app.QUERIES["up"] else throughput if expr == app.QUERIES["generation_tps"] else None
+                return {("one", "engine"): value}
+            with self.subTest(throughput=throughput), patch.object(app, "query", side_effect=query), \
+                    patch.object(app, "probe", return_value={"state": "ok"}):
+                values = app.collect([project()])["projects"][0]["nodes"][0]["values"]
+            self.assertEqual(values["generation_tps"], throughput)
+            self.assertIsNone(values["output_tps"])
 
     def test_prometheus_failure_surfaces(self):
         with patch.object(app, "query", side_effect=RuntimeError("secret upstream content")), patch.object(app, "probe", return_value={"state": "error", "message": "HTTP 401"}):
