@@ -41,6 +41,7 @@ def load_dotenv(path):
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 PROMETHEUS = os.getenv("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
 REFRESH_SECONDS = max(3, int(os.getenv("REFRESH_SECONDS", "3")))
+API_PROBE_SECONDS = 15 * 60
 CONFIG_PATH = Path(os.getenv("SERVICES_CONFIG", str(Path(__file__).resolve().parent.parent / "services.json")))
 INDEX = Path(__file__).with_name("index.html").read_bytes()
 GROUP = "monitor_project,monitor_node"
@@ -627,16 +628,37 @@ def diagnose(v, configured=True):
     return findings or [["ok", "暂未发现明显瓶颈", "基于当前可用指标；仍需观察业务高峰和历史变化。"]]
 
 
+_probe_cache = {}
+
+
 def collect(projects):
+    # snapshot() serializes collection. Cache both successful and failed probes;
+    # metrics queries still run on every collection.
+    nodes = {(p["id"], n["id"]): n for p in projects for n in p["nodes"]}
+    for identity in list(_probe_cache):
+        if identity not in nodes:
+            del _probe_cache[identity]
     values, errors = {}, {}
     with ThreadPoolExecutor(max_workers=12) as pool:
         tasks = {name: pool.submit(query, expr) for name, expr in QUERIES.items()} if any(n.get("metrics_url") for p in projects for n in p["nodes"]) else {}
-        probes = {(p["id"], n["id"]): pool.submit(probe, n) for p in projects for n in p["nodes"]}
+        probes, api_results = {}, {}
+        for identity, node in nodes.items():
+            key_env = node.get("api_key_env")
+            signature = (node.get("api_base_url"), key_env, node.get("_api_key"),
+                         os.getenv(key_env) if key_env else None)
+            cached = _probe_cache.get(identity)
+            if cached is not None and cached[0] == signature and time.monotonic() - cached[1] < API_PROBE_SECONDS:
+                api_results[identity] = cached[2]
+            else:
+                probes[identity] = (signature, pool.submit(probe, node))
         for name, task in tasks.items():
             try:
                 values[name] = task.result()
             except Exception as exc:
                 errors[name] = safe_error(exc)
+        for identity, (signature, task) in probes.items():
+            api_results[identity] = task.result()
+            _probe_cache[identity] = (signature, time.monotonic(), api_results[identity])
         result = []
         for project in projects:
             item = {key: project.get(key, "") for key in ("id", "name", "alias", "group", "deployment", "environment")}
@@ -655,7 +677,7 @@ def collect(projects):
                     for name in ("input_tps", "output_tps", "ttft", "e2e", "tpot", "prefill", "prompt", "cache"):
                         v[name] = None
                 public = {key: node.get(key, "") for key in ("id", "name", "role", "api_base_url", "metrics_url")}
-                public.update(values=v, activity=activity, api=probes[identity].result(), findings=findings, auth_configured=bool(node.get("api_key_env") or node.get("_api_key")), metrics_configured=bool(node.get("metrics_url")))
+                public.update(values=v, activity=activity, api=api_results[identity], findings=findings, auth_configured=bool(node.get("api_key_env") or node.get("_api_key")), metrics_configured=bool(node.get("metrics_url")))
                 item["nodes"].append(public)
             result.append(item)
     return {"collected_at_ms": int(time.time() * 1000), "collected_at": time.strftime("%Y-%m-%d %H:%M:%S %z"), "refresh_seconds": REFRESH_SECONDS, "projects": result, "errors": errors}

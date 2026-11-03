@@ -21,6 +21,46 @@ def project(pid="one"):
 
 
 class MonitorTests(unittest.TestCase):
+    def setUp(self):
+        cache = patch.object(app, "_probe_cache", {})
+        cache.start()
+        self.addCleanup(cache.stop)
+
+    def test_probe_interval_is_independent_of_metrics_refresh(self):
+        for state in ("ok", "error"):
+            with self.subTest(state=state), patch.object(app, "_probe_cache", {}), \
+                    patch.object(app.time, "monotonic", return_value=1000) as now, \
+                    patch.object(app, "query", return_value={}) as query, \
+                    patch.object(app, "probe", return_value={"state": state, "message": state}) as probe:
+                first = app.collect([project()])
+                now.return_value = 1899
+                second = app.collect([project()])
+                self.assertEqual(probe.call_count, 1)
+                self.assertEqual(query.call_count, 2 * len(app.QUERIES))
+                self.assertEqual(first["projects"][0]["nodes"][0]["api"],
+                                 second["projects"][0]["nodes"][0]["api"])
+                now.return_value = 1900
+                app.collect([project()])
+                self.assertEqual(probe.call_count, 2)
+
+    def test_probe_cache_invalidates_when_url_or_credentials_change(self):
+        p = project()
+        with patch.object(app, "query", return_value={}), \
+                patch.object(app, "probe", return_value={"state": "ok"}) as probe, \
+                patch.dict(os.environ, {"TEST_KEY": "first"}):
+            app.collect([p])
+            p["nodes"][0]["api_base_url"] = "http://other/v1"
+            app.collect([p])
+            os.environ["TEST_KEY"] = "second"
+            app.collect([p])
+            p["nodes"][0]["_api_key"] = "inline-key"
+            app.collect([p])
+            self.assertEqual(probe.call_count, 4)
+            app.collect([])
+            self.assertEqual(app._probe_cache, {})
+            app.collect([p])
+            self.assertEqual(probe.call_count, 5)
+
     def test_simple_two_model_config(self):
         env = {"MODEL_1_NAME": "GLM", "MODEL_1_URL": "http://glm:8080/",
                "MODEL_1_API_KEY": "private-key", "MODEL_2_NAME": "Qwen",
