@@ -121,8 +121,9 @@ class AverageTests(unittest.TestCase):
 
     def test_output_speed_uses_request_tpot_not_token_counter(self):
         output = app.average_queries('12h')['output_average']
-        self.assertIn('histogram_quantile(0.95', output)
-        self.assertIn('request_time_per_output_token_seconds_bucket', output)
+        self.assertNotIn('histogram_quantile', output)
+        self.assertIn('request_time_per_output_token_seconds_sum', output)
+        self.assertIn('request_time_per_output_token_seconds_count', output)
         self.assertNotIn('generation_tokens_total', output)
         self.assertNotIn('inter_token_latency_seconds', output)
         self.assertIn('prompt_tokens_total', app.average_queries('12h')['input_average'])

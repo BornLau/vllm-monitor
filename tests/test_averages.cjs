@@ -97,7 +97,7 @@ test('only short confirmed idle gaps get interpolation and grey bands; means sta
 });
 
 test('latency axis fits clustered samples while retaining mean, zeros and constant values', async () => {
-  for (const [values,mean] of [[[.1,.101,.102],.101],[[.1,.101],.15],[[.1,.1],.1],[[0,0],0],[[.0001,.00011],.000105]]) {
+  for (const [values,mean] of [[[.1,.101,.102],.101],[[.1,.101],.15],[[.1,.1],.1],[[0,0],0],[[.0001,.00011],.000105],[[.0201,.0204],.02025]]) {
     const row={model:'m',tpot:{average:mean,samples:values.map((v,i)=>[i+1,v])},ttft:{samples:[]}};
     const get=page(async()=>({ok:true,json:async()=>({start:0,end:4,step_seconds:1,rows:[row]})})); await tick();
     const html=get('average-rows').innerHTML;
@@ -107,6 +107,10 @@ test('latency axis fits clustered samples while retaining mean, zeros and consta
     assert.ok(min<=Math.min(...extent) && max>=Math.max(...extent));
     if(Math.min(...extent)>=100) assert.ok(min>90);
     if(mean===.101) assert.ok(max-min<5);
+    const labels=[...html.matchAll(/<text x="73" y="[^"]+" text-anchor="end">([\d.,]+)<\/text>/g)].map(m=>m[1]);
+    assert.equal(new Set(labels).size,labels.length);
+    assert.ok(labels.every(label=>/^\d[\d,]*(\.\d{1,2})?$/.test(label)));
+    if(mean===.101) assert.ok(labels.every(label=>!label.includes('.')));
     assert.doesNotMatch(html,/NaN|Infinity/);
   }
 });

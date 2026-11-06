@@ -20,12 +20,12 @@ test('auth failures and critical performance retain severity',()=>{
  assert.match(row('HTTP 401'),/pill critical/);
  assert.match(row('HTTP 404',[['critical','拥堵','等待过多']]),/pill critical/);
 });
-test('decode speed identifies request TPOT P95 and excludes TTFT',()=>{
+test('decode speed identifies mean request TPOT and excludes TTFT',()=>{
  const markup=row('HTTP 404');
  assert.match(markup,/解码速度/);
  assert.match(markup,/class="input-speed-row"/);
  assert.match(markup,/输入速度/);
- assert.match(markup,/请求级 TPOT P95/);
+ assert.match(markup,/请求级平均 TPOT/);
  assert.match(markup,/请求总耗时 − 首 Token 时间/);
  assert.doesNotMatch(markup,/Token 间隔 P50|当前输出吞吐/);
 });
@@ -36,7 +36,7 @@ test('total output speed appears below input and remains separate from TPOT spee
  let markup=vm.runInContext('modelRow(p,n)',context);
  assert.match(markup,/输出速度<\/span><b>1,234 tok\/s/);
  assert.ok(markup.indexOf('输入速度')<markup.indexOf('输出速度'));
- assert.ok(markup.indexOf('输出速度')<markup.indexOf('运行 \/ 等待'));
+ assert.ok(markup.indexOf('输出速度')<markup.indexOf('<span>运行</span>'));
  context.n.values.generation_tps=0;
  assert.match(vm.runInContext('modelRow(p,n)',context),/输出速度<\/span><b>0 tok\/s/);
  context.n.values.generation_tps=null;
@@ -71,4 +71,27 @@ test('group tabs include all and ungrouped, combine filters, and recover after g
  vm.runInContext("selectedGroup='生产';data.projects=data.projects.filter(p=>p.id!=='a');renderModels()",ctx);
  assert.equal(vm.runInContext('selectedGroup',ctx),null);
  assert.equal(ctx.shown[0][0].id,'c');
+});
+
+test('request rows separate running and waiting, preserving PD zeros, gaps and ordinary counts',()=>{
+ context.counts={running:3,waiting:0,running_other:3,waiting_other:0};
+ let markup=vm.runInContext('requestFacts(counts)',context);
+ assert.match(markup,/<span>运行<\/span><b>3<\/b>/);
+ assert.match(markup,/<span>等待<\/span><b>0<\/b>/);
+ assert.doesNotMatch(markup,/request-group|request-values/);
+ context.counts={running:31,waiting:2,running_p:10,waiting_p:2,running_d:21,waiting_d:0};
+ markup=vm.runInContext('requestFacts(counts)',context);
+ const [running,waiting]=markup.split('<span>等待</span>');
+ assert.match(running,/request-label">P<\/span><span class="request-count">10/);
+ assert.match(running,/request-label">D<\/span><span class="request-count">21/);
+ assert.match(waiting,/request-label">P<\/span><span class="request-count">2/);
+ assert.match(waiting,/request-label">D<\/span><span class="request-count">0/);
+ assert.equal((markup.match(/class="fact-line"/g)||[]).length,2);
+ context.counts={running_p:0};
+ markup=vm.runInContext('requestFacts(counts)',context);
+ assert.match(markup,/request-label">P<\/span><span class="request-count">0/);
+ assert.equal((markup.match(/class="request-count">—/g)||[]).length,3);
+ context.counts.running_other=4;
+ markup=vm.runInContext('requestFacts(counts)',context);
+ assert.match(markup,/request-label">其他<\/span><span class="request-count">4/);
 });

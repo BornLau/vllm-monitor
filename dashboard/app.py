@@ -42,6 +42,7 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 PROMETHEUS = os.getenv("PROMETHEUS_URL", "http://prometheus:9090").rstrip("/")
 REFRESH_SECONDS = max(3, int(os.getenv("REFRESH_SECONDS", "3")))
 API_PROBE_SECONDS = 15 * 60
+CACHE_IDLE_SECONDS = 300
 CONFIG_PATH = Path(os.getenv("SERVICES_CONFIG", str(Path(__file__).resolve().parent.parent / "services.json")))
 INDEX = Path(__file__).with_name("index.html").read_bytes()
 GROUP = "monitor_project,monitor_node"
@@ -52,12 +53,19 @@ ALLOWED_HOSTS = set(os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1,::1,dashboar
 
 
 def request_tpot(group=GROUP, fresh_seconds=None):
-    """Request-level P95 excludes TTFT; completed requests supply observations."""
-    raw = f"vllm:request_time_per_output_token_seconds_bucket{SELECTOR}"
-    buckets = f"irate({raw}[1m])"
+    """Mean request TPOT; completed requests supply sum/count observations."""
+    total = f"vllm:request_time_per_output_token_seconds_sum{SELECTOR}"
+    count = f"vllm:request_time_per_output_token_seconds_count{SELECTOR}"
+    # Pair series before aggregation so missing halves cannot bias the mean.
+    # Apply irate before summing to handle individual counter resets.
+    total_rate = f"irate({total}[1m])"
+    count_rate = f"irate({count}[1m])"
     if fresh_seconds is not None:
-        buckets = f"{buckets} and (time() - timestamp({raw}) < {fresh_seconds})"
-    return f"histogram_quantile(0.95,sum by (le,{group}) ({buckets}))"
+        total_rate += f" and (time() - timestamp({total}) < {fresh_seconds})"
+        count_rate += f" and (time() - timestamp({count}) < {fresh_seconds})"
+    numerator = f"sum by ({group}) (({total_rate}) and ({count_rate}))"
+    denominator = f"sum by ({group}) (({count_rate}) and ({total_rate}))"
+    return f"{numerator} / ({denominator} > 0)"
 
 
 def decode_speed(tpot):
@@ -93,11 +101,22 @@ def queries():
         "prefill": p50("request_prefill_time_seconds"),
         "prompt": p50("request_prompt_tokens"),
         "cache": f'100 * {instant_rate("prefix_cache_hits_total")} / {instant_rate("prefix_cache_queries_total")}',
+        "cache_no_queries": f'({instant_rate("prefix_cache_hits_total")} == 0) and ({instant_rate("prefix_cache_queries_total")} == 0)',
         "preempt": f'sum by ({GROUP}) (increase({metric("num_preemptions_total")}[1h]))',
         "input_tps": instant_rate("prompt_tokens_total"),
         "generation_tps": instant_rate("generation_tokens_total"),
         "output_tps": decode_speed(request_tpot()),
     }
+
+    # Preserve unlabelled/ordinary engines as a separate group in mixed exports.
+    # Prometheus regex matchers are anchored, so only explicit suffixes are PD.
+    for state in ("running", "waiting"):
+        for phase, matcher in (("p", 'engine=~".*-prefill"'),
+                               ("d", 'engine=~".*-decode"'),
+                               ("other", 'engine!~".*-(prefill|decode)"')):
+            selector = SELECTOR[:-1] + "," + matcher + "}"
+            expressions[f"{state}_{phase}"] = (
+                f"sum by ({GROUP}) (vllm:num_requests_{state}{selector})")
 
     # Positive activity includes requests that finished between scrapes. Missing
     # evidence is unknown, not idle: all signals must exist to establish zero.
@@ -630,6 +649,35 @@ def diagnose(v, configured=True):
 
 
 _probe_cache = {}
+_prefix_cache_display = {}
+
+
+def prefix_cache_display(identity, node, values, activity, now, errors=()):
+    """Hold the last observed ratio across healthy intervals without queries."""
+    signature = (node.get("metrics_url"), node.get("api_key_env"), node.get("_api_key"),
+                 os.getenv(node.get("api_key_env")) if node.get("api_key_env") else None)
+    previous = _prefix_cache_display.get(identity)
+    if previous is not None and previous["signature"] != signature:
+        previous = None
+        _prefix_cache_display.pop(identity, None)
+    value = values.get("cache")
+    healthy = values.get("up") == 1 and "cache" not in errors
+    no_queries = values.get("cache_no_queries") == 0
+    if not healthy or (value is None and (not no_queries or activity == "unknown")):
+        _prefix_cache_display.pop(identity, None)
+        return None, "missing"
+    idle_since = previous["idle_since"] if previous is not None else None
+    idle_since = (now if idle_since is None else idle_since) if activity == "idle" else None
+    if idle_since is not None and now - idle_since >= CACHE_IDLE_SECONDS:
+        _prefix_cache_display.pop(identity, None)
+        return None, "idle"
+    if value is not None:
+        _prefix_cache_display[identity] = dict(signature=signature, value=value, idle_since=idle_since)
+        return value, "observed"
+    if previous is not None:
+        previous["idle_since"] = idle_since
+        return previous["value"], "held"
+    return None, "missing"
 
 
 def collect(projects):
@@ -639,6 +687,9 @@ def collect(projects):
     for identity in list(_probe_cache):
         if identity not in nodes:
             del _probe_cache[identity]
+    for identity in list(_prefix_cache_display):
+        if identity not in nodes:
+            del _prefix_cache_display[identity]
     values, errors = {}, {}
     with ThreadPoolExecutor(max_workers=12) as pool:
         tasks = {name: pool.submit(query, expr) for name, expr in QUERIES.items()} if any(n.get("metrics_url") for p in projects for n in p["nodes"]) else {}
@@ -672,13 +723,15 @@ def collect(projects):
                     v = {name: v["up"] if name == "up" else None for name in QUERIES}
                 activity = "active" if (v.get("activity") or 0) > 0 else "idle" if v.get("activity") == 0 else "unknown"
                 findings = diagnose(v, bool(node.get("metrics_url")))
+                # Retained ratios are display-only; diagnoses use fresh data.
+                v["cache"], cache_state = prefix_cache_display(identity, node, v, activity, time.monotonic(), errors)
                 # Keep instantaneous gauges and event totals truthful. Performance
                 # statistics are only available for confirmed active intervals.
                 if activity != "active":
-                    for name in ("input_tps", "output_tps", "ttft", "e2e", "tpot", "prefill", "prompt", "cache"):
+                    for name in ("input_tps", "output_tps", "ttft", "e2e", "tpot", "prefill", "prompt"):
                         v[name] = None
                 public = {key: node.get(key, "") for key in ("id", "name", "role", "api_base_url", "metrics_url")}
-                public.update(values=v, activity=activity, api=api_results[identity], findings=findings, auth_configured=bool(node.get("api_key_env") or node.get("_api_key")), metrics_configured=bool(node.get("metrics_url")))
+                public.update(values=v, activity=activity, cache_state=cache_state, api=api_results[identity], findings=findings, auth_configured=bool(node.get("api_key_env") or node.get("_api_key")), metrics_configured=bool(node.get("metrics_url")))
                 item["nodes"].append(public)
             result.append(item)
     return {"collected_at_ms": int(time.time() * 1000), "collected_at": time.strftime("%Y-%m-%d %H:%M:%S %z"), "refresh_seconds": REFRESH_SECONDS, "projects": result, "errors": errors}

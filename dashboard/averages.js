@@ -34,12 +34,21 @@
     const extent = [...values, ...(mean == null ? [] : [mean])];
     const low = extent.length ? Math.min(...extent) : 0;
     const high = extent.length ? Math.max(...extent) : 1;
-    const padding = Math.max((high - low) * .12, high * .01, .01);
-    const unit = 10 ** Math.floor(Math.log10(Math.max(high - low, padding * 2))) / 10;
-    const min = Math.max(0, Math.floor((low - padding) / unit) * unit);
-    const max = Math.ceil((high + padding) / unit) * unit;
-    const axisNumber = value => Number(value.toFixed(6)).toLocaleString('zh-CN', {maximumFractionDigits: 6});
-    const levels = [min, (min + max) / 2, max];
+    const padding = Math.max((high - low) * .12, high * .001, .01);
+    // Use integer ticks for ordinary ranges, decimal ticks for sub-ms ranges.
+    // Generate tick positions at that precision instead of rounding labels
+    // independently, which could give several ticks the same displayed value.
+    const span = high - low + padding * 2;
+    const desired = span / 4;
+    const magnitude = 10 ** Math.floor(Math.log10(desired));
+    const nice = [1, 2, 5, 10].find(step => step * magnitude >= desired);
+    const precision = span >= 1 ? 1 : .01;
+    const unit = Math.max(precision, nice * magnitude);
+    const min = Math.max(0, Math.floor((low - padding) / precision) * precision);
+    const max = Math.ceil((high + padding) / precision) * precision;
+    const axisNumber = number;
+    const firstTick = Math.ceil(min / unit - 1e-9), lastTick = Math.floor(max / unit + 1e-9);
+    const levels = Array.from({length: lastTick - firstTick + 1}, (_, i) => (firstTick + i) * unit);
     const left = 82, right = 510, baseline = 150;
     const x = t => left + (t - start) / Math.max(1, end - start) * (right - left);
     const y = value => baseline - (value - min) / (max - min) * 120;

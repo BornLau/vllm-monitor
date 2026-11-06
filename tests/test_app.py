@@ -25,6 +25,67 @@ class MonitorTests(unittest.TestCase):
         cache = patch.object(app, "_probe_cache", {})
         cache.start()
         self.addCleanup(cache.stop)
+        retained = patch.object(app, "_prefix_cache_display", {})
+        retained.start()
+        self.addCleanup(retained.stop)
+
+    def test_prefix_cache_holds_without_queries_and_expires_after_continuous_idle(self):
+        node = project()["nodes"][0]
+        identity = ("one", "engine")
+        raw = dict(up=1, cache=80, cache_no_queries=None)
+        def display(activity, now):
+            return app.prefix_cache_display(identity, node, raw, activity, now)
+        self.assertEqual(display("active", 0), (80, "observed"))
+        raw.update(cache=None, cache_no_queries=0)
+        self.assertEqual(display("active", 1000), (80, "held"))
+        self.assertEqual(display("idle", 1001), (80, "held"))
+        self.assertEqual(display("idle", 1300), (80, "held"))
+        # Activity resets the continuous idle timer.
+        self.assertEqual(display("active", 1301), (80, "held"))
+        self.assertEqual(display("idle", 1400), (80, "held"))
+        self.assertEqual(display("idle", 1699), (80, "held"))
+        self.assertEqual(display("idle", 1700), (None, "idle"))
+        self.assertEqual(display("active", 1701), (None, "missing"))
+        # New observations restore the value, including a real zero percent.
+        raw.update(cache=0, cache_no_queries=None)
+        self.assertEqual(display("active", 1702), (0, "observed"))
+        raw.update(cache=None, cache_no_queries=0)
+        self.assertEqual(display("active", 1703), (0, "held"))
+
+    def test_prefix_cache_never_hides_failures_with_a_retained_value(self):
+        identity = ("one", "engine")
+        for failure in ("scrape", "metrics", "query", "unknown", "endpoint"):
+            with self.subTest(failure=failure):
+                app._prefix_cache_display.clear()
+                node = project()["nodes"][0]
+                app.prefix_cache_display(identity, node, dict(up=1, cache=80), "active", 0)
+                raw = dict(up=1, cache=None, cache_no_queries=0)
+                if failure == "scrape":
+                    raw["up"] = 0
+                if failure == "metrics":
+                    raw["cache_no_queries"] = None
+                if failure == "endpoint":
+                    node["metrics_url"] = "http://different/metrics"
+                result = app.prefix_cache_display(identity, node, raw,
+                    "unknown" if failure == "unknown" else "active", 1,
+                    errors={"cache": "failed"} if failure == "query" else {})
+                self.assertEqual(result, (None, "missing"))
+                self.assertEqual(app.prefix_cache_display(identity, node,
+                    dict(up=1, cache=None, cache_no_queries=0), "active", 2), (None, "missing"))
+
+    def test_collect_retains_cache_ratio_but_does_not_diagnose_from_old_value(self):
+        raw = dict(up=1, activity=1, cache=0, input_tps=1)
+        def query(expr):
+            name = next(name for name, value in app.QUERIES.items() if value == expr)
+            return {("one", "engine"): raw.get(name)}
+        with patch.object(app, "query", side_effect=query), \
+                patch.object(app, "probe", return_value={"state": "ok"}):
+            app.collect([project()])
+            raw.update(cache=None, cache_no_queries=0)
+            node = app.collect([project()])["projects"][0]["nodes"][0]
+        self.assertEqual(node["values"]["cache"], 0)
+        self.assertEqual(node["cache_state"], "held")
+        self.assertFalse(any(finding[1] == "前缀缓存收益低" for finding in node["findings"]))
 
     def test_probe_interval_is_independent_of_metrics_refresh(self):
         for state in ("ok", "error"):
@@ -139,11 +200,29 @@ class MonitorTests(unittest.TestCase):
         self.assertIsNone(data["projects"][1]["nodes"][0]["values"]["generation_tps"])
         self.assertNotIn("api_key_env", json.dumps(data))
 
+    def test_pd_gauges_keep_zero_missing_and_failed_scrape_semantics(self):
+        raw = dict(up=1, running=31, waiting=2, running_p=10, running_d=21,
+                   waiting_p=2, waiting_d=0)
+        def query(expr):
+            name = next(name for name, value in app.QUERIES.items() if value == expr)
+            return {("one", "engine"): raw[name]} if name in raw else {}
+        with patch.object(app, "query", side_effect=query), \
+                patch.object(app, "probe", return_value={"state": "ok"}):
+            values = app.collect([project()])["projects"][0]["nodes"][0]["values"]
+            self.assertEqual([values[k] for k in ("running_p", "running_d", "waiting_p", "waiting_d")],
+                             [10, 21, 2, 0])
+            self.assertIsNone(values["running_other"])
+            self.assertIsNone(values["waiting_other"])
+            raw["up"] = 0
+            values = app.collect([project()])["projects"][0]["nodes"][0]["values"]
+            self.assertTrue(all(values[key] is None for key in
+                                ("running_p", "running_d", "waiting_p", "waiting_d")))
+
     def test_activity_filter_preserves_short_requests_and_live_gauges(self):
         for activity, expected in [(0, "idle"), (1, "active"), (None, "unknown")]:
             with self.subTest(activity=activity):
                 raw = {name: 0 for name in app.QUERIES}
-                raw.update(up=1, activity=activity, output_tps=50, kv=25, preempt=2)
+                raw.update(up=1, activity=activity, output_tps=50, kv=25, cache=60, preempt=2)
                 def query(expr):
                     name = next(name for name, value in app.QUERIES.items() if value == expr)
                     return {("one", "engine"): raw[name]}
@@ -153,6 +232,7 @@ class MonitorTests(unittest.TestCase):
                 self.assertEqual(node["activity"], expected)
                 self.assertEqual(node["values"]["running"], 0)
                 self.assertEqual(node["values"]["kv"], 25)
+                self.assertEqual(node["values"]["cache"], 60)
                 self.assertEqual(node["values"]["preempt"], 2)
                 self.assertEqual(node["values"]["output_tps"], 50 if activity == 1 else None)
                 self.assertEqual(node["values"]["generation_tps"], 0)

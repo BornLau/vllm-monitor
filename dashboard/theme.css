@@ -86,3 +86,25 @@ body,button,input,select,.toolbar input,.toolbar select,.actions select,.config-
 .model-groups button span{margin-left:6px;font-variant-numeric:tabular-nums;opacity:.8}
 .model-groups button:focus-visible{outline:2px solid #527be9;outline-offset:2px}
 @media(max-width:700px){header.sticky-controls>div:first-child{flex:0 1 auto}header.sticky-controls{gap:12px}}
+
+/* One rhythm for all secondary metrics, including PD request counts. */
+.fact-list{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+.facts .fact-line{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0;font-size:var(--font-small);line-height:1.6}
+.facts .fact-line b{font-size:inherit;font-weight:500;line-height:inherit;white-space:nowrap;font-variant-numeric:tabular-nums}
+.facts .input-speed-row{border:0;padding:0;margin:0}
+.request-group{display:grid;gap:8px}
+.request-values{display:inline-flex;flex-wrap:wrap;justify-content:flex-end;gap:4px 12px;min-width:0}
+.request-value{display:inline-flex;align-items:baseline;gap:3px}
+.request-label{font-weight:400}
+.request-count{min-width:var(--request-count-width,3ch);text-align:right}
+.facts .meter{margin:8px 0 0}
+/* Center the complete chart group, including its heading and axes. */
+.trend-panel{display:flex;flex-direction:column;justify-content:center;gap:12px;padding:20px 16px;min-width:0}
+.trend-head{align-items:baseline;margin:0;min-height:24px}
+.plot{flex:none;height:120px;margin:0 24px}
+.time-axis{margin:0 24px}
+/* Supporting labels use the shared size on the statistics page too. */
+.bar-label strong,.bar-value,.latency-title,.latency-title small,.latency-title strong{font-size:var(--font-small)}
+@media(max-width:700px){.trend-panel{padding:16px 12px}.fact-list{max-width:100%}}
+
+.custom-range-note{color:var(--muted);font-size:var(--font-small)}

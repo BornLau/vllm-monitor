@@ -13,7 +13,7 @@
 <main>
 
 <section class="usage-section" aria-label="用量统计">
-<header class="sticky-controls"><div><h1>用量统计</h1><p>按日汇总 · 北京时间（UTC+8）</p></div><div class="actions"><div class="range-tabs" aria-label="累计用量范围"><button type="button" data-range="24h" aria-pressed="false">今天</button><button type="button" data-range="7d" aria-pressed="false">近 7 天</button><button type="button" data-range="30d" aria-pressed="true">近 30 天</button></div><label hidden>统计范围 <select id="window"><option value="24h" selected>今天</option><option value="7d">近 7 天</option><option value="30d" selected>近 30 天</option></select></label><button id="refresh">刷新统计</button></div></header>
+<header class="sticky-controls"><div><h1>用量统计</h1><p>按日汇总 · 北京时间（UTC+8）</p></div><div class="actions"><div class="range-tabs" aria-label="累计用量范围"><button type="button" data-range="24h" aria-pressed="false">今天</button><button type="button" data-range="7d" aria-pressed="false">近 7 天</button><button type="button" data-range="30d" aria-pressed="true">近 30 天</button></div><label hidden>统计范围 <select id="window"><option value="24h">今天</option><option value="7d">近 7 天</option><option value="30d" selected>近 30 天</option></select></label><button id="refresh">刷新统计</button></div></header>
 <div id="error" class="notice" role="alert" hidden></div>
 <section class="cards" aria-label="总计">
 <div class="card"><span>成功请求</span><strong id="requests">—</strong><small>requests</small></div>
@@ -28,7 +28,7 @@
 <section aria-label="平均时延" class="average-section">
 <div class="sticky-controls">
 <div class="table-head"><div><h1>平均时延</h1><p>TPOT · TTFT · 曲线为分段平均时延，橙色虚线为所选范围均值</p></div><div class="actions"><label>平均值范围 <select id="average-window"><option value="6h">近 6 小时</option><option value="12h">近 12 小时</option><option value="24h" selected>近 24 小时</option><option value="48h">近 48 小时</option><option value="7d">近 7 天</option><option value="custom">自定义时间</option></select></label><button id="average-refresh">刷新平均值</button></div></div>
-<div id="average-custom" class="actions" hidden style="flex-wrap:wrap;margin-bottom:16px"><label>开始时间 <input id="average-start" type="datetime-local" required></label><label>结束时间 <input id="average-end" type="datetime-local" required></label><span style="color:var(--muted);font-size:12px">按本地时区，最长 30 天；选择后点击刷新平均值</span></div>
+<div id="average-custom" class="actions" hidden style="flex-wrap:wrap;margin-bottom:16px"><label>开始时间 <input id="average-start" type="datetime-local" required></label><label>结束时间 <input id="average-end" type="datetime-local" required></label><span class="custom-range-note">按本地时区，最长 30 天；选择后点击刷新平均值</span></div>
 </div>
 <div id="average-error" class="notice" role="alert" hidden></div>
 <div id="average-rows" class="chart-grid" aria-live="polite">正在加载平均值…</div>
